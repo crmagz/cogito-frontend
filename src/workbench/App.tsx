@@ -67,6 +67,10 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Mission Control is temporarily unavailable."); }
   }, [client, etag]);
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    const interval = window.setInterval(() => void refresh(), 15_000);
+    return () => window.clearInterval(interval);
+  }, [refresh]);
   useEffect(() => { const onFocus = () => void refresh(); window.addEventListener("focus", onFocus); return () => window.removeEventListener("focus", onFocus); }, [refresh]);
   return <main>
     <aside><p className="brand">COGITO</p><nav aria-label="Workbench navigation"><a href="#mission">Mission Control</a><a href="#workflow">Workflow</a><a href="#dossier">Dossier</a><span aria-disabled="true">Telemetry — coming soon</span><span aria-disabled="true">Logs — coming soon</span></nav></aside>
