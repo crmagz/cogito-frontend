@@ -1,0 +1,18 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1
+    with:
+      working-directory: .
+      node-version: "22"
+      # The reusable Forge workflow skips its publish job when no target is configured.
+      environment: ci

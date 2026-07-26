@@ -1,0 +1,48 @@
+import { apiClient, type Run } from "./client";
+import { jest } from "@jest/globals";
+
+const run: Run = {
+  run_id: "run-123",
+  project_id: "default",
+  status: "awaiting_plan_approval",
+  submitted_at: "2026-07-26T00:00:00Z",
+  active_gate: "plan",
+  artifacts: [{ kind: "plan", sha256: "a".repeat(64) }],
+  abilities: ["view", "approve"],
+  workflow: ["planning", "plan_approval"]
+};
+
+test("submits the exact displayed digest to the authoritative action route", async () => {
+  const fetchMock = jest.fn<(url: string, options: RequestInit) => Promise<Response>>(async () => (
+    { ok: true, status: 202, json: async () => ({ decision_id: "decision-1" }) } as Response
+  ));
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  await apiClient.decide(run, "approve");
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/cogito/api/v1/coordination/runs/run-123/actions/plan",
+    expect.objectContaining({ method: "POST", headers: expect.objectContaining({ "Idempotency-Key": expect.any(String) }) })
+  );
+  const [, options] = fetchMock.mock.calls[0]!;
+  expect(JSON.parse(options.body as string)).toMatchObject({ decision: "approve", artifact_sha256: "a".repeat(64) });
+});
+
+test("does not claim success after a stale authoritative conflict", async () => {
+  global.fetch = jest.fn(async () => ({ ok: false, status: 409 })) as unknown as typeof fetch;
+
+  await expect(apiClient.decide(run, "approve")).rejects.toThrow("409");
+});
+
+test("reuses the idempotency key after an ambiguous transport failure", async () => {
+  const fetchMock = jest
+    .fn<(url: string, options: RequestInit) => Promise<Response>>()
+    .mockRejectedValueOnce(new Error("network interrupted"))
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({}) } as Response);
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  await expect(apiClient.decide(run, "approve")).rejects.toThrow("network interrupted");
+  await apiClient.decide(run, "approve");
+
+  expect(fetchMock.mock.calls[0]![1].headers).toEqual(fetchMock.mock.calls[1]![1].headers);
+});
