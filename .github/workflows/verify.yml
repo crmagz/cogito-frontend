@@ -12,8 +12,7 @@ permissions:
 
 jobs:
   verify:
-    # Pin the reviewed no-publish Forge workflow commit until its release tag advances.
-    uses: crmagz/forge/.github/workflows/build-node.yml@671730c2e348ad5821d2750863d09c43088715db
+    uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1
     with:
       working-directory: .
       node-version: "24"

@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cogito-frontend-release-main
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      previous-tag: ${{ steps.version.outputs.previous-tag }}
+      release-required: ${{ steps.version.outputs.release-required }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: version
+        uses: crmagz/forge/.github/actions/semantic-version@releases/v1
+        with:
+          tag-prefix: frontend/
+
+  build:
+    needs: version
+    if: needs.version.outputs.release-required == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  release:
+    needs: [version, build]
+    if: needs.version.outputs.release-required == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: crmagz/forge/.github/actions/release@releases/v1
+        with:
+          version: ${{ needs.version.outputs.version }}
+          tag-prefix: frontend/
+          previous-tag: ${{ needs.version.outputs.previous-tag }}
+          token: ${{ github.token }}
