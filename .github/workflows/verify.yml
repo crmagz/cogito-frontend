@@ -16,6 +16,6 @@ jobs:
     uses: crmagz/forge/.github/workflows/build-node.yml@671730c2e348ad5821d2750863d09c43088715db
     with:
       working-directory: .
-      node-version: "22"
+      node-version: "24"
       # The reusable Forge workflow skips its publish job when no target is configured.
       environment: ci
