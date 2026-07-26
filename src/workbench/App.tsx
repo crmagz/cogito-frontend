@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiClient, type ApiClient, type Artifact, type Run } from "./client";
 import { DecisionControls } from "./DecisionControls";
@@ -59,12 +59,20 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
   const [selected, setSelected] = useState<Run | null>(null);
   const [etag, setEtag] = useState<string>();
   const [error, setError] = useState<string | null>(null);
+  // Requests can overlap when a manual refresh, focus event, and the polling
+  // interval happen together. Only the most recently started request may
+  // replace authoritative state.
+  const refreshGeneration = useRef(0);
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     try {
       const result = await client.listRuns(etag);
+      if (generation !== refreshGeneration.current) return;
       if (!result.unchanged) { setRuns(result.runs); setSelected((current) => result.runs.find((item) => item.run_id === current?.run_id) ?? result.runs[0] ?? null); }
       setEtag(result.etag ?? undefined); setError(null);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Mission Control is temporarily unavailable."); }
+    } catch (reason) {
+      if (generation === refreshGeneration.current) setError(reason instanceof Error ? reason.message : "Mission Control is temporarily unavailable.");
+    }
   }, [client, etag]);
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
