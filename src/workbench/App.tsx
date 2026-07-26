@@ -49,7 +49,7 @@ function relativeTime(value: string) {
 
 function Sidebar({ view, setView, selected }: { view: View; setView: (view: View) => void; selected: Run | null }) {
   return <aside className="sidebar">
-    <div className="brand-row"><div className="brand-mark">◆</div><div><strong>RELAY</strong><small>Orchestration Grid</small></div><button className="icon-button" aria-label="Collapse sidebar">«</button></div>
+    <div className="brand-row"><div className="brand-mark">◆</div><div><strong>COGITO</strong><small>Operator Workbench</small></div><button className="icon-button" aria-label="Collapse sidebar">«</button></div>
     <button className="workspace-switcher"><span className="workspace-icon"><Icon name="flow" /></span><span><b>{selected?.project_id ?? "Cogito"}</b><small><i className="health-dot" />Operational</small></span><span>⌄</span></button>
     <p className="nav-label">Workspace</p>
     <nav aria-label="Workbench navigation">
