@@ -24,10 +24,13 @@ test("forwards only allowlisted Workbench requests with the server-side credenti
 
   const allowed = await fetch(`${origin}/api/cogito/api/v1/workbench/runs`);
   const denied = await fetch(`${origin}/api/cogito/api/v1/runs`);
+  const crossOrigin = await fetch(`${origin}/api/cogito//attacker.example/api/v1/workbench/runs`);
   await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
 
   expect(allowed.status).toBe(200);
   expect(denied.status).toBe(404);
+  expect(crossOrigin.status).toBe(404);
+  expect(upstream).toHaveBeenCalledTimes(1);
   expect(upstream).toHaveBeenCalledWith(
     new URL("https://api.example.test/api/v1/workbench/runs"),
     expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer server-only-token" }) })

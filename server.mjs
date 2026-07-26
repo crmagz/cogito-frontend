@@ -17,7 +17,10 @@ export function createRelay({ upstreamUrl, token, fetchImpl = fetch }) {
   app.use("/api/cogito", async (request, response, next) => {
     const pathWithQuery = request.originalUrl.replace(/^\/api\/cogito/, "");
     const requestUrl = new URL(pathWithQuery, upstream);
-    if (!allowed.some((rule) => rule.method === request.method && rule.path.test(requestUrl.pathname))) {
+    // A scheme-relative path (for example //attacker.example/...) would make
+    // URL resolve to a different host. Never forward the relay credential off
+    // the explicitly configured upstream origin.
+    if (requestUrl.origin !== upstream.origin || !allowed.some((rule) => rule.method === request.method && rule.path.test(requestUrl.pathname))) {
       return response.status(404).json({ detail: "Workbench relay path not found" });
     }
     try {
