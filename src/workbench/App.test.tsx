@@ -16,7 +16,7 @@ const waitingRun: Run = {
   workflow: ["planning", "plan", "plan_approval"]
 };
 
-test("renders an accessible relay-grid workbench and rejects blank revision rationales", async () => {
+test("renders the relay grid drill-down and rejects blank revision rationales", async () => {
   const user = userEvent.setup();
   const decide = jest.fn<(run: Run, decision: "approve" | "reject" | "request_revision", comment?: string) => Promise<void>>().mockResolvedValue(undefined);
   const client: ApiClient = {
@@ -26,9 +26,13 @@ test("renders an accessible relay-grid workbench and rejects blank revision rati
   };
 
   render(<App client={client} />);
+  expect(await screen.findByRole("heading", { name: "Mission Control" })).toBeVisible();
+  expect(screen.getByRole("navigation", { name: "Workbench navigation" })).toBeVisible();
+
+  await user.click(await screen.findByText("run-1234"));
+  expect(await screen.findByRole("heading", { name: "Planning Relay" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /plan.*authoritative/i }));
   expect(await screen.findByRole("button", { name: "Request revision" })).toBeVisible();
-  expect(screen.getByRole("link", { name: "Mission Control" })).toBeVisible();
-  expect(screen.getByText("Telemetry — coming soon")).toHaveAttribute("aria-disabled", "true");
 
   await user.click(screen.getByRole("button", { name: "Request revision" }));
 
