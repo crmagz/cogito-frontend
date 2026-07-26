@@ -32,4 +32,6 @@ npm run lint
 
 Tests are native Jest component and HTTP-integration tests. The reusable Forge
 workflow runs the same locked install, build, lint, typecheck, and test steps;
-it has no ECR or CodeArtifact publish target for this repository.
+it has no ECR or CodeArtifact publish target for this repository. The release
+workflow builds qualifying conventional-commit changes on `main`, then creates
+the matching `frontend/vX.Y.Z` tag and GitHub release through Forge.

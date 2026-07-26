@@ -1,19 +1,41 @@
-<!-- Use a Conventional Commit title: <type>(<scope>): <description> -->
+<!--
+PR Title Format: <type>(<scope>): <description>
+Example: feat(terraform): add plan workflow
 
-## Updates
+Types: feat | fix | docs | style | refactor | perf | test | build | ci | chore | revert
+Breaking change: Add ! after type, e.g., feat!: redesign workflow inputs
+-->
 
-<!-- Describe the implementation delivered by this PR. Do not include commit or branch history. -->
+## Type of Change
 
-## Validation
+- [ ] Feature (new functionality)
+- [ ] Bug fix (non-breaking fix)
+- [ ] Refactor (no functional change)
+- [ ] Performance improvement
+- [ ] Documentation update
+- [ ] Infrastructure / CI / Build
+- [ ] Breaking change
 
-<!-- List the checks run and any relevant manual verification. -->
+## Summary
 
-- [ ] `npm run test`
-- [ ] `npm run lint`
-- [ ] `npm run build`
+<!-- What problem does this solve? What's the motivation? -->
+
+## What Changed
+
+<!-- What did you change and why this approach? What alternatives did you consider? -->
+
+## How You Tested
+
+<!-- Unit tests? Integration tests? Manual validation? Include commands or steps -->
+
+- [ ] Tested locally with `lefthook run pre-commit`
+- [ ] Workflow syntax validated with `actionlint`
+- [ ] Tested with a consumer repo (if applicable)
 
 ## Checklist
 
-- [ ] Self-reviewed the implementation
-- [ ] Updated tests or explained why they are unnecessary
-- [ ] Updated documentation if behavior changed
+- [ ] PR title follows conventional commit format
+- [ ] Self-reviewed my own code
+- [ ] Docs updated (if behavior changed)
+- [ ] All versions pinned (no `latest` tags)
+- [ ] No new warnings generated
