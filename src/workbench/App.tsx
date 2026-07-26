@@ -6,7 +6,8 @@ import { DecisionControls } from "./DecisionControls";
 type View = "mission" | "workflow" | "dossier";
 type DossierTab = "overview" | "log" | "configuration" | "dependencies" | "history";
 
-const navItems = ["Mission Control", "Workflows", "Runs", "Agents", "Tools", "Datasets", "Secrets", "Policies", "Schedules", "Audit Log"];
+const navItems = ["Mission Control", "Workflows", "Runs", "Agents", "Tools", "Datasets", "Secrets", "Policies", "Schedules", "Audit Log"] as const;
+type NavItem = (typeof navItems)[number];
 
 function statusLabel(status: string) {
   return status.replaceAll("_", " ");
@@ -47,7 +48,7 @@ function relativeTime(value: string) {
   return `${Math.floor(seconds / 3600)}h ago`;
 }
 
-function Sidebar({ view, setView, selected }: { view: View; setView: (view: View) => void; selected: Run | null }) {
+function Sidebar({ setView, selected, activeItem, setActiveItem }: { setView: (view: View) => void; selected: Run | null; activeItem: NavItem; setActiveItem: (item: NavItem) => void }) {
   return <aside className="sidebar">
     <div className="brand-row"><div className="brand-mark">◆</div><div><strong>COGITO</strong><small>Operator Workbench</small></div><button className="icon-button" aria-label="Collapse sidebar">«</button></div>
     <button className="workspace-switcher"><span className="workspace-icon"><Icon name="flow" /></span><span><b>{selected?.project_id ?? "Cogito"}</b><small><i className="health-dot" />Operational</small></span><span>⌄</span></button>
@@ -55,12 +56,12 @@ function Sidebar({ view, setView, selected }: { view: View; setView: (view: View
     <nav aria-label="Workbench navigation">
       {navItems.map((item, index) => {
         const enabled = item === "Mission Control" || item === "Workflows" || item === "Runs";
-        const active = view === "mission" && item === "Mission Control";
-        return <button key={item} className={active ? "active" : ""} aria-disabled={!enabled} onClick={() => enabled && setView(item === "Mission Control" ? "mission" : "workflow")}><Icon name={index === 0 ? "grid" : index === 1 ? "flow" : index === 2 ? "runs" : index === 5 ? "database" : index === 7 ? "shield" : index === 8 ? "clock" : "node"} /><span>{item}</span>{active && <i className="nav-dot" />}</button>;
+        const active = item === activeItem;
+        return <button key={item} className={active ? "active" : ""} aria-disabled={!enabled} onClick={() => { if (enabled) { setActiveItem(item); setView(item === "Mission Control" ? "mission" : "workflow"); } }}><Icon name={index === 0 ? "grid" : index === 1 ? "flow" : index === 2 ? "runs" : index === 5 ? "database" : index === 7 ? "shield" : index === 8 ? "clock" : "node"} /><span>{item}</span>{active && <i className="nav-dot" />}</button>;
       })}
     </nav>
     <div className="sidebar-bottom">
-      <section className="quick-actions"><p className="nav-label">Quick actions</p><button disabled>New Workflow <b>+</b></button><button disabled>Trigger Run</button><button disabled>Create Agent</button><button onClick={() => selected && setView("dossier")}>View Dossiers</button></section>
+      <section className="quick-actions"><p className="nav-label">Quick actions</p><button disabled>New Workflow <b>+</b></button><button disabled>Trigger Run</button><button disabled>Create Agent</button><button onClick={() => { if (selected) { setActiveItem("Runs"); setView("dossier"); } }}>View Dossiers</button></section>
       <section className="system-status"><p className="nav-label">System status</p><b><i className="health-dot" />All Systems Operational</b><small>Authoritative relay connected</small></section>
       <footer><button className="icon-button" aria-label="Help"><Icon name="help" /></button><button className="icon-button" aria-label="Settings"><Icon name="settings" /></button><span className="avatar">CR<i /></span><button className="icon-button" aria-label="Expand sidebar">»</button></footer>
     </div>
@@ -86,7 +87,8 @@ function MissionControl({ runs, onSelect, refresh }: { runs: Run[]; onSelect: (r
   </section>;
 }
 
-function stageType(stage: string) { return stage.includes("approval") ? "gate" : stage.includes("plan") || stage.includes("implementation") ? "queue" : "agent"; }
+function stageType(stage: string) { return stage.endsWith("_approval") ? "gate" : stage === "plan" || stage === "implementation" ? "queue" : "agent"; }
+function isActiveStage(stage: string, activeGate: Run["active_gate"]) { return activeGate !== null && (stage === activeGate || stage === `${activeGate}_approval`); }
 
 function WorkflowCanvas({ run, onBack, onDossier }: { run: Run; onBack: () => void; onDossier: (stage: string) => void }) {
   const stages = run.workflow.length ? run.workflow : ["planning"];
@@ -94,7 +96,7 @@ function WorkflowCanvas({ run, onBack, onDossier }: { run: Run; onBack: () => vo
     <div className="breadcrumb"><button onClick={onBack}>Mission Control</button><span>/</span><b>{run.run_id.slice(0, 8)}</b></div>
     <header className="flow-header"><div><div className="title-line"><h1 id="workflow-title">Planning Relay</h1><Pill status={run.status} /></div><p className="mono">flow_{run.run_id.slice(0, 8)} <span /> Started {relativeTime(run.submitted_at)} <span /> {stages.length} projected stages</p></div><div className="kpis"><Kpi label="Stages" value={stages.length} /><Kpi label="Evidence" value={run.artifacts.length} /><Kpi label="Active gate" value={run.active_gate ?? "none"} /><Kpi label="Scope" value={run.project_id} /></div></header>
     <div className="canvas-toolbar"><span><i className="health-dot" /> Live projection</span><div><button aria-label="Zoom out">−</button><span>100%</span><button aria-label="Zoom in">+</button><button aria-label="Fit graph">⌗</button></div><button>View: State ⌄</button></div>
-    <div className="canvas-scroll"><div className="relay-canvas"><div className="relay-line" />{stages.map((stage, index) => <button key={stage} className={`relay-node ${stageType(stage)} ${stage === run.active_gate || stage === `${run.active_gate}_approval` ? "focused" : ""}`} style={{ "--node-index": index, "--node-count": stages.length } as React.CSSProperties} onClick={() => onDossier(stage)}><span className="node-icon"><Icon name={stageType(stage) === "gate" ? "flow" : stageType(stage) === "queue" ? "database" : "node"} /></span><span className="node-copy"><b>{statusLabel(stage)}</b><small>{stageType(stage)}</small></span><i className={`node-status ${statusTone(stage === run.active_gate || stage.includes("approval") ? "awaiting" : run.status)}`} /><span className="node-metric">{stage === run.active_gate || stage === `${run.active_gate}_approval` ? "Awaiting decision" : "Authoritative"}</span><span className="node-bars"><i /><i /><i /><i className="off" /><i className="off" /></span></button>)}</div></div>
+    <div className="canvas-scroll"><div className="relay-canvas" style={{ "--count": stages.length } as React.CSSProperties}><div className="relay-line" />{stages.map((stage) => <button key={stage} className={`relay-node ${stageType(stage)} ${isActiveStage(stage, run.active_gate) ? "focused" : ""}`} onClick={() => onDossier(stage)}><span className="node-icon"><Icon name={stageType(stage) === "gate" ? "flow" : stageType(stage) === "queue" ? "database" : "node"} /></span><span className="node-copy"><b>{statusLabel(stage)}</b><small>{stageType(stage)}</small></span><i className={`node-status ${statusTone(isActiveStage(stage, run.active_gate) ? "awaiting" : run.status)}`} /><span className="node-metric">{isActiveStage(stage, run.active_gate) ? "Awaiting decision" : "Authoritative"}</span><span className="node-bars"><i /><i /><i /><i className="off" /><i className="off" /></span></button>)}</div></div>
   </section>;
 }
 
@@ -109,7 +111,7 @@ function Dossier({ client, run, stage, onBack, onRefresh }: { client: ApiClient;
   return <section className="view dossier-view" aria-labelledby="dossier-title">
     <div className="breadcrumb"><button onClick={onBack}>Mission Control</button><span>/</span><button onClick={onBack}>Planning Relay</button><span>/</span><b>{statusLabel(stage)}</b></div>
     <header className="dossier-head">
-      <div><h1 id="dossier-title" className="dossier-title">{statusLabel(stage)}</h1><div className="dossier-meta"><span>node_{stage.replaceAll("_", "-")}</span><span>{stageType(stage)}</span><Pill status={stage === run.active_gate ? "awaiting" : run.status} /></div></div>
+      <div><h1 id="dossier-title" className="dossier-title">{statusLabel(stage)}</h1><div className="dossier-meta"><span>node_{stage.replaceAll("_", "-")}</span><span>{stageType(stage)}</span><Pill status={isActiveStage(stage, run.active_gate) ? "awaiting" : run.status} /></div></div>
       <div className="d-kpis"><DossierKpi label="Evidence" value={run.artifacts.length} /><DossierKpi label="Gate" value={run.active_gate ?? "—"} /><DossierKpi label="Project" value={run.project_id} /></div>
     </header>
     <div className="subtabs" role="tablist">{tabs.map((item) => <button key={item.id} className="subtab" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
@@ -117,7 +119,7 @@ function Dossier({ client, run, stage, onBack, onRefresh }: { client: ApiClient;
       {tab === "overview" && <div className="dossier-grid"><section className="card dossier-summary"><p className="eyebrow">Description</p><p className="dossier-description">This stage is projected by Cogito from the persisted planning run. Decisions and evidence remain server-authoritative.</p><div className="dossier-details"><div><span>Project</span><b>{run.project_id}</b></div><div><span>Workflow state</span><b>{statusLabel(run.status)}</b></div><div><span>Active gate</span><b>{run.active_gate ?? "None"}</b></div><div><span>Submitted</span><b>{new Date(run.submitted_at).toLocaleString()}</b></div></div></section><section className="card dossier-events"><h2 className="panel-title">Recent events</h2><div className="timeline"><div className="tl-item"><i /><div><b>Run submitted to planning workflow</b><small>{relativeTime(run.submitted_at)}</small></div></div><div className="tl-item"><i /><div><b>Current state projected as {statusLabel(run.status)}</b><small>now</small></div></div>{run.artifacts.map((item) => <button key={item.kind} className={`tl-item evidence-event ${artifact?.kind === item.kind ? "selected" : ""}`} onClick={() => void openEvidence(item)}><i /><span><b>{statusLabel(item.kind)} evidence verified</b><small>{item.sha256.slice(0, 12)}</small></span></button>)}</div>{error && <p className="evidence-error" role="alert">{error}</p>}{evidence && <pre aria-label="Verified evidence">{evidence}</pre>}</section></div>}
       {tab === "log" && <section className="card log-card"><p><span>{new Date(run.submitted_at).toISOString()}</span> <b>[relay]</b> Run submitted to authoritative planning workflow</p><p><span>{new Date().toISOString()}</span> <b>[projection]</b> Stage {stage} rendered from server state</p></section>}
       {tab === "configuration" && <section className="codeblock"><pre>{JSON.stringify({ run_id: run.run_id, project_id: run.project_id, stage, workflow: run.workflow, artifacts: run.artifacts.map((item) => ({ kind: item.kind, sha256: item.sha256 })) }, null, 2)}</pre></section>}
-      {tab === "dependencies" && <section className="dependency-list">{run.workflow.map((item) => <div key={item}><span><b>{statusLabel(item)}</b><small>{stageType(item)}</small></span><Pill status={item === run.active_gate || item.includes("approval") ? "awaiting" : run.status} /></div>)}</section>}
+      {tab === "dependencies" && <section className="dependency-list">{run.workflow.map((item) => <div key={item}><span><b>{statusLabel(item)}</b><small>{stageType(item)}</small></span><Pill status={isActiveStage(item, run.active_gate) ? "awaiting" : run.status} /></div>)}</section>}
       {tab === "history" && <section className="card timeline"><div className="tl-item"><i /><div><b>Run submitted</b><small>{relativeTime(run.submitted_at)}</small></div></div><div className="tl-item"><i /><div><b>Current projection loaded</b><small>now</small></div></div></section>}
       {run.active_gate && <DecisionControls client={client} run={run} onComplete={onRefresh} />}
     </div>
@@ -128,6 +130,7 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [selected, setSelected] = useState<Run | null>(null);
   const [view, setView] = useState<View>("mission");
+  const [activeNavItem, setActiveNavItem] = useState<NavItem>("Mission Control");
   const [stage, setStage] = useState("planning");
   const [etag, setEtag] = useState<string>();
   const [error, setError] = useState<string | null>(null);
@@ -144,12 +147,12 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
   useEffect(() => { const interval = window.setInterval(() => void refresh(), pollDelay); return () => window.clearInterval(interval); }, [pollDelay, refresh]);
   useEffect(() => { const onFocus = () => void refresh(); window.addEventListener("focus", onFocus); return () => window.removeEventListener("focus", onFocus); }, [refresh]);
   useEffect(() => () => activeRequest.current?.abort(), []);
-  const openWorkflow = (run: Run) => { setSelected(run); setStage(run.workflow[0] ?? "planning"); setView("workflow"); };
+  const openWorkflow = (run: Run) => { setSelected(run); setStage(run.workflow[0] ?? "planning"); setActiveNavItem("Runs"); setView("workflow"); };
   const selectedRun = selected ?? runs[0] ?? null;
   const content = useMemo(() => {
-    if (view === "workflow" && selectedRun) return <WorkflowCanvas run={selectedRun} onBack={() => setView("mission")} onDossier={(nextStage) => { setStage(nextStage); setView("dossier"); }} />;
+    if (view === "workflow" && selectedRun) return <WorkflowCanvas run={selectedRun} onBack={() => { setActiveNavItem("Mission Control"); setView("mission"); }} onDossier={(nextStage) => { setStage(nextStage); setView("dossier"); }} />;
     if (view === "dossier" && selectedRun) return <Dossier client={client} run={selectedRun} stage={stage} onBack={() => setView("workflow")} onRefresh={refresh} />;
     return <MissionControl runs={runs} onSelect={openWorkflow} refresh={refresh} />;
   }, [client, refresh, runs, selectedRun, stage, view]);
-  return <main className="app-shell"><Sidebar view={view} setView={setView} selected={selectedRun} /><div className="main-content">{error && <p className="app-error" role="alert">{error}</p>}{content}</div></main>;
+  return <main className="app-shell"><Sidebar setView={setView} selected={selectedRun} activeItem={activeNavItem} setActiveItem={setActiveNavItem} /><div className="main-content">{error && <p className="app-error" role="alert">{error}</p>}{content}</div></main>;
 }

@@ -27,13 +27,13 @@ async function json(response: Response) {
 export const apiClient: ApiClient = {
   async listRuns(etag, signal) {
     const response = await fetch(`${base}/workbench/runs`, { headers: etag ? { "If-None-Match": etag } : {}, signal });
-    if (response.status === 304) return { runs: [], revision: etag ?? "", etag: response.headers.get("etag"), unchanged: true };
+    if (response.status === 304) return { runs: [], revision: etag ?? "", etag: response.headers.get("etag") ?? etag ?? null, unchanged: true };
     const body = await json(response);
     return { runs: body.items, revision: body.revision, etag: response.headers.get("etag"), unchanged: false };
   },
   async getEvidence(runId, artifact) {
     const response = await fetch(
-      `${base}/workbench/runs/${encodeURIComponent(runId)}/evidence/${artifact.kind}?artifact_sha256=${artifact.sha256}`
+      `${base}/workbench/runs/${encodeURIComponent(runId)}/evidence/${artifact.kind}?artifact_sha256=${encodeURIComponent(artifact.sha256)}`
     );
     return json(response);
   },

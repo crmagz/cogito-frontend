@@ -66,3 +66,24 @@ test("sends ETags and cancellation signals on authoritative refreshes", async ()
     expect.objectContaining({ headers: { "If-None-Match": '"previous"' }, signal: controller.signal })
   );
 });
+
+test("retains the cached ETag when a 304 response omits one", async () => {
+  global.fetch = jest.fn(async () => (
+    { ok: false, status: 304, headers: { get: () => null } } as unknown as Response
+  )) as unknown as typeof fetch;
+
+  await expect(apiClient.listRuns('"cached"')).resolves.toEqual({
+    runs: [], revision: '"cached"', etag: '"cached"', unchanged: true
+  });
+});
+
+test("URL-encodes evidence digests", async () => {
+  const fetchMock = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ content: "{}" }) } as Response));
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  await apiClient.getEvidence("run/123", { kind: "plan", sha256: "digest&extra=value" });
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/cogito/api/v1/workbench/runs/run%2F123/evidence/plan?artifact_sha256=digest%26extra%3Dvalue"
+  );
+});
