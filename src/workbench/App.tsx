@@ -59,27 +59,37 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
   const [selected, setSelected] = useState<Run | null>(null);
   const [etag, setEtag] = useState<string>();
   const [error, setError] = useState<string | null>(null);
+  const [pollDelay, setPollDelay] = useState(15_000);
   // Requests can overlap when a manual refresh, focus event, and the polling
   // interval happen together. Only the most recently started request may
   // replace authoritative state.
   const refreshGeneration = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
   const refresh = useCallback(async () => {
     const generation = ++refreshGeneration.current;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
     try {
-      const result = await client.listRuns(etag);
+      const result = await client.listRuns(etag, controller.signal);
       if (generation !== refreshGeneration.current) return;
       if (!result.unchanged) { setRuns(result.runs); setSelected((current) => result.runs.find((item) => item.run_id === current?.run_id) ?? result.runs[0] ?? null); }
-      setEtag(result.etag ?? undefined); setError(null);
+      setEtag(result.etag ?? undefined); setError(null); setPollDelay(15_000);
     } catch (reason) {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
       if (generation === refreshGeneration.current) setError(reason instanceof Error ? reason.message : "Mission Control is temporarily unavailable.");
+      if (generation === refreshGeneration.current) setPollDelay((delay) => Math.min(delay * 2, 120_000));
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
     }
   }, [client, etag]);
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
-    const interval = window.setInterval(() => void refresh(), 15_000);
+    const interval = window.setInterval(() => void refresh(), pollDelay);
     return () => window.clearInterval(interval);
-  }, [refresh]);
+  }, [pollDelay, refresh]);
   useEffect(() => { const onFocus = () => void refresh(); window.addEventListener("focus", onFocus); return () => window.removeEventListener("focus", onFocus); }, [refresh]);
+  useEffect(() => () => activeRequest.current?.abort(), []);
   return <main>
     <aside><p className="brand">COGITO</p><nav aria-label="Workbench navigation"><a href="#mission">Mission Control</a><a href="#workflow">Workflow</a><a href="#dossier">Dossier</a><span aria-disabled="true">Telemetry — coming soon</span><span aria-disabled="true">Logs — coming soon</span></nav></aside>
     <div className="workbench"><header><p>Operator workbench / project-scoped</p><button onClick={() => void refresh()}>Refresh authoritative state</button></header>
