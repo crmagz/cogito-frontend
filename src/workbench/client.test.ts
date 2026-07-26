@@ -46,3 +46,23 @@ test("reuses the idempotency key after an ambiguous transport failure", async ()
 
   expect(fetchMock.mock.calls[0]![1].headers).toEqual(fetchMock.mock.calls[1]![1].headers);
 });
+
+test("sends ETags and cancellation signals on authoritative refreshes", async () => {
+  const fetchMock = jest.fn<(url: string, options: RequestInit) => Promise<Response>>(async () => (
+    {
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => name.toLowerCase() === "etag" ? '"next"' : null },
+      json: async () => ({ items: [], revision: "next" })
+    } as Response
+  ));
+  global.fetch = fetchMock as unknown as typeof fetch;
+  const controller = new AbortController();
+
+  await apiClient.listRuns('"previous"', controller.signal);
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/cogito/api/v1/workbench/runs",
+    expect.objectContaining({ headers: { "If-None-Match": '"previous"' }, signal: controller.signal })
+  );
+});

@@ -11,7 +11,7 @@ export type Run = {
 };
 
 export type ApiClient = {
-  listRuns: (etag?: string) => Promise<{ runs: Run[]; revision: string; etag: string | null; unchanged: boolean }>;
+  listRuns: (etag?: string, signal?: AbortSignal) => Promise<{ runs: Run[]; revision: string; etag: string | null; unchanged: boolean }>;
   getEvidence: (runId: string, artifact: Artifact) => Promise<{ content: string; sha256: string }>;
   decide: (run: Run, decision: "approve" | "reject" | "request_revision", comment?: string) => Promise<void>;
 };
@@ -25,8 +25,8 @@ async function json(response: Response) {
 }
 
 export const apiClient: ApiClient = {
-  async listRuns(etag) {
-    const response = await fetch(`${base}/workbench/runs`, { headers: etag ? { "If-None-Match": etag } : {} });
+  async listRuns(etag, signal) {
+    const response = await fetch(`${base}/workbench/runs`, { headers: etag ? { "If-None-Match": etag } : {}, signal });
     if (response.status === 304) return { runs: [], revision: etag ?? "", etag: response.headers.get("etag"), unchanged: true };
     const body = await json(response);
     return { runs: body.items, revision: body.revision, etag: response.headers.get("etag"), unchanged: false };
