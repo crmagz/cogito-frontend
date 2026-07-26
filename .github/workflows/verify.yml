@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   verify:
-    uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1
+    # Pin the reviewed no-publish workflow commit until it is released as releases/v1.
+    uses: crmagz/forge/.github/workflows/build-node.yml@671730c2e348ad5821d2750863d09c43088715db
     with:
       working-directory: .
       node-version: "22"
