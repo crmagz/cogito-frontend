@@ -31,6 +31,8 @@ test("renders the relay grid drill-down and rejects blank revision rationales", 
 
   await user.click(await screen.findByText("run-1234"));
   expect(await screen.findByRole("heading", { name: "Planning Relay" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Runs" })).toHaveClass("active");
+  expect(screen.getByRole("button", { name: /planning agent authoritative/i })).toHaveClass("agent");
   await user.click(screen.getByRole("button", { name: /plan.*authoritative/i }));
   expect(await screen.findByRole("button", { name: "Request revision" })).toBeVisible();
 
