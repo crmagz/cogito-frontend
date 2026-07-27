@@ -5,3 +5,10 @@ export function createRelay(options: {
   token: string;
   fetchImpl?: typeof fetch;
 }): Express;
+
+export function createDevelopmentServer(options: {
+  upstreamUrl: string;
+  token: string;
+  staticDirectory?: string;
+  environment?: string;
+}): Express;

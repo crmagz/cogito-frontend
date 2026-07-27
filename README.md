@@ -10,12 +10,18 @@ does not directly access object storage or Temporal.
 The Node relay is the only component that reads `COGITO_UPSTREAM_TOKEN`; it
 forwards a small allowlist of Workbench API requests and never sends that token
 to browser JavaScript. Copy `.env.example` into a local, untracked `.env` and
-run:
+point it at a locally forwarded development API:
 
 ```sh
+kubectl --context kind-cogito-observability -n cogito port-forward service/cogito-api 8000:8000
 npm ci
 npm run dev
 ```
+
+Set `COGITO_UPSTREAM_TOKEN` only in the ignored `.env` file or server process
+environment. The Vite development server mounts the same relay as `npm run
+serve`, so browser requests to `/api/cogito` remain same-origin and the token
+never enters browser code or the production build.
 
 To serve a built application through the development relay, run `npm run build`
 then `npm run serve`. Production startup intentionally fails until a real OIDC
