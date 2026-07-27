@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const allowed = [
+  { method: "GET", path: /^\/healthz$/ },
+  { method: "GET", path: /^\/api\/v1\/workbench\/projects$/ },
   { method: "GET", path: /^\/api\/v1\/workbench\/runs(?:\/[^/]+(?:\/evidence\/(?:source|plan|implementation))?)?$/ },
   { method: "POST", path: /^\/api\/v1\/coordination\/runs\/[^/]+\/actions\/(?:plan|implementation)$/ }
 ];
@@ -14,7 +16,7 @@ export function createRelay({ upstreamUrl, token, fetchImpl = fetch }) {
   const upstream = new URL(upstreamUrl);
   const app = express();
   app.use(express.json({ limit: "16kb" }));
-  app.use("/api/cogito", async (request, response, next) => {
+  app.use("/api/cogito", async (request, response) => {
     const pathWithQuery = request.originalUrl.replace(/^\/api\/cogito/, "");
     const requestUrl = new URL(pathWithQuery, upstream);
     // A scheme-relative path (for example //attacker.example/...) would make
@@ -40,22 +42,30 @@ export function createRelay({ upstreamUrl, token, fetchImpl = fetch }) {
       response.status(upstreamResponse.status);
       if (body) response.type("application/json").send(body);
       else response.end();
-    } catch (error) {
-      next(error);
+    } catch {
+      response.status(502).json({
+        detail: "Workbench relay cannot reach the configured API. Verify the local API URL and port-forward."
+      });
     }
   });
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  if (process.env.NODE_ENV === "production") {
+export function createDevelopmentServer({ upstreamUrl, token, staticDirectory, environment = process.env.NODE_ENV }) {
+  if (environment === "production") {
     throw new Error("Production startup requires an OIDC session relay; static upstream tokens are development-only");
   }
-  const app = createRelay({
-    upstreamUrl: process.env.COGITO_UPSTREAM_URL,
-    token: process.env.COGITO_UPSTREAM_TOKEN
-  });
+  const app = createRelay({ upstreamUrl, token });
+  if (staticDirectory) app.use(express.static(staticDirectory));
+  return app;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
   const dirname = path.dirname(fileURLToPath(import.meta.url));
-  app.use(express.static(path.join(dirname, "dist")));
+  const app = createDevelopmentServer({
+    upstreamUrl: process.env.COGITO_UPSTREAM_URL,
+    token: process.env.COGITO_UPSTREAM_TOKEN,
+    staticDirectory: path.join(dirname, "dist")
+  });
   app.listen(process.env.PORT || 4173);
 }

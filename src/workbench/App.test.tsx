@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { jest } from "@jest/globals";
 
@@ -20,6 +20,8 @@ test("renders the relay grid drill-down and rejects blank revision rationales", 
   const user = userEvent.setup();
   const decide = jest.fn<(run: Run, decision: "approve" | "reject" | "request_revision", comment?: string) => Promise<void>>().mockResolvedValue(undefined);
   const client: ApiClient = {
+    listProjects: async () => [{ project_id: "default" }],
+    getHealth: async () => true,
     listRuns: async () => ({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false }),
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide
@@ -30,10 +32,10 @@ test("renders the relay grid drill-down and rejects blank revision rationales", 
   expect(screen.getByRole("navigation", { name: "Workbench navigation" })).toBeVisible();
 
   await user.click(await screen.findByText("run-1234"));
-  expect(await screen.findByRole("heading", { name: "Planning Relay" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Runs" })).toHaveClass("active");
-  expect(screen.getByRole("button", { name: /planning agent authoritative/i })).toHaveClass("agent");
-  await user.click(screen.getByRole("button", { name: /plan.*authoritative/i }));
+  expect(await screen.findByRole("heading", { name: "Workflow relay" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Workflows" })).toHaveClass("active");
+  expect(screen.getByRole("button", { name: /planning agent projected from run lifecycle/i })).toHaveClass("agent");
+  await user.click(screen.getByRole("button", { name: /plan queue awaiting operator decision/i }));
   expect(await screen.findByRole("button", { name: "Request revision" })).toBeVisible();
 
   await user.click(screen.getByRole("button", { name: "Request revision" }));
@@ -50,15 +52,135 @@ test("does not let a stale refresh overwrite a newer authoritative response", as
   const second = new Promise<{ runs: Run[]; revision: string; etag: string; unchanged: false }>((resolve) => { resolveSecond = resolve; });
   const currentRun = { ...waitingRun, run_id: "run-current-123", status: "awaiting_implementation_approval" };
   const client: ApiClient = {
+    listProjects: async () => [],
+    getHealth: async () => true,
     listRuns: jest.fn<ApiClient["listRuns"]>().mockReturnValueOnce(first).mockReturnValueOnce(second),
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide: async () => undefined
   };
 
   render(<App client={client} />);
-  await user.click(screen.getByRole("button", { name: "Refresh authoritative state" }));
+  await user.click(screen.getByRole("button", { name: /authoritative state/ }));
   await act(async () => { resolveSecond({ runs: [currentRun], revision: "new", etag: "new", unchanged: false }); });
   expect(await screen.findByText("awaiting implementation approval")).toBeVisible();
   await act(async () => { resolveFirst({ runs: [waitingRun], revision: "old", etag: "old", unchanged: false }); });
   expect(screen.getByText("awaiting implementation approval")).toBeVisible();
+});
+
+test("operates workflow-only navigation, zoom, shell controls, and visible refresh outcomes", async () => {
+  const user = userEvent.setup();
+  const client: ApiClient = {
+    listProjects: async () => [],
+    getHealth: async () => false,
+    listRuns: jest
+      .fn<ApiClient["listRuns"]>()
+      .mockResolvedValueOnce({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false })
+      .mockResolvedValueOnce({ runs: [], revision: "first", etag: "first", unchanged: true }),
+    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
+    decide: async () => undefined
+  };
+
+  render(<App client={client} />);
+  await user.click(await screen.findByText("run-1234"));
+  expect(screen.queryByRole("button", { name: "Runs" })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Zoom in" }));
+  expect(screen.getByText("110%")).toBeVisible();
+  expect(document.querySelector(".canvas-zoom")).toHaveAttribute("data-zoom", "110");
+  await user.click(screen.getByRole("button", { name: "Fit graph" }));
+  expect(screen.getByText("100%")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+  expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Open display settings" }));
+  await user.click(screen.getByRole("radio", { name: "light" }));
+  expect(screen.getByRole("main")).toHaveAttribute("data-theme", "light");
+  await user.click(screen.getByRole("button", { name: "Close dialog" }));
+
+  await user.click(within(screen.getByRole("navigation", { name: "Workbench navigation" })).getByRole("button", { name: "Mission Control" }));
+  await user.click(screen.getByRole("button", { name: "Refresh authoritative state" }));
+  expect(await screen.findByRole("status")).toHaveTextContent("Authoritative state unchanged");
+  expect(screen.getAllByText("Authoritative relay connected")).not.toHaveLength(0);
+});
+
+test("selects only authorized projects through the server-backed inventory", async () => {
+  const user = userEvent.setup();
+  const listRuns = jest.fn<ApiClient["listRuns"]>().mockResolvedValue({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false });
+  const client: ApiClient = {
+    listProjects: async () => [{ project_id: "alpha" }, { project_id: "beta" }],
+    getHealth: async () => true,
+    listRuns,
+    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
+    decide: async () => undefined
+  };
+
+  render(<App client={client} />);
+  const selector = await screen.findByRole("combobox", { name: "Active project" });
+  await user.selectOptions(selector, "beta");
+  expect(await screen.findByText("Authoritative state updated", { exact: false })).toBeVisible();
+  expect(listRuns).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: "beta" }));
+});
+
+test("does not poll before server-authorized project inventory resolves", async () => {
+  let resolveProjects!: (projects: { project_id: string }[]) => void;
+  const projects = new Promise<{ project_id: string }[]>((resolve) => { resolveProjects = resolve; });
+  const listRuns = jest.fn<ApiClient["listRuns"]>().mockResolvedValue({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false });
+  const client: ApiClient = {
+    listProjects: async () => projects,
+    getHealth: async () => true,
+    listRuns,
+    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
+    decide: async () => undefined
+  };
+
+  render(<App client={client} />);
+  expect(listRuns).not.toHaveBeenCalled();
+  await act(async () => { resolveProjects([{ project_id: "default" }]); });
+  expect(await screen.findByText("run-1234")).toBeVisible();
+  expect(listRuns).toHaveBeenCalledWith(expect.objectContaining({ projectId: "default" }));
+});
+
+test("fails closed when the authorized project inventory cannot be loaded", async () => {
+  const user = userEvent.setup();
+  const listRuns = jest.fn<ApiClient["listRuns"]>();
+  const client: ApiClient = {
+    listProjects: async () => { throw new Error("project service unavailable"); },
+    getHealth: async () => true,
+    listRuns,
+    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
+    decide: async () => undefined
+  };
+
+  render(<App client={client} />);
+  expect(await screen.findByText("Unable to load authorized project inventory.")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Refresh authoritative state" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Project inventory is unavailable; no run request was sent.");
+  expect(listRuns).not.toHaveBeenCalled();
+});
+
+test("returns to Mission Control when polling removes the selected workflow", async () => {
+  jest.useFakeTimers();
+  try {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    const client: ApiClient = {
+      listProjects: async () => [],
+      getHealth: async () => true,
+      listRuns: jest
+        .fn<ApiClient["listRuns"]>()
+        .mockResolvedValueOnce({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false })
+        .mockResolvedValueOnce({ runs: [], revision: "second", etag: "second", unchanged: false }),
+      getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
+      decide: async () => undefined
+    };
+
+    render(<App client={client} />);
+    await user.click(await screen.findByText("run-1234"));
+    expect(await screen.findByRole("heading", { name: "Workflow relay" })).toBeVisible();
+    await act(async () => { await jest.advanceTimersByTimeAsync(15_000); });
+
+    expect(await screen.findByRole("heading", { name: "Mission Control" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Workflows" })).toBeDisabled();
+  } finally {
+    jest.useRealTimers();
+  }
 });

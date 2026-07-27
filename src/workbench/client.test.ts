@@ -59,7 +59,7 @@ test("sends ETags and cancellation signals on authoritative refreshes", async ()
   global.fetch = fetchMock as unknown as typeof fetch;
   const controller = new AbortController();
 
-  await apiClient.listRuns('"previous"', controller.signal);
+  await apiClient.listRuns({ etag: '"previous"', signal: controller.signal });
 
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/cogito/api/v1/workbench/runs",
@@ -72,9 +72,22 @@ test("retains the cached ETag when a 304 response omits one", async () => {
     { ok: false, status: 304, headers: { get: () => null } } as unknown as Response
   )) as unknown as typeof fetch;
 
-  await expect(apiClient.listRuns('"cached"')).resolves.toEqual({
+  await expect(apiClient.listRuns({ etag: '"cached"' })).resolves.toEqual({
     runs: [], revision: '"cached"', etag: '"cached"', unchanged: true
   });
+});
+
+test("lists only relay-provided projects and checks relay health", async () => {
+  const fetchMock = jest
+    .fn<(url: string, options?: RequestInit) => Promise<Response>>()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{ project_id: "alpha" }] }) } as Response)
+    .mockResolvedValueOnce({ ok: true } as Response);
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  await expect(apiClient.listProjects()).resolves.toEqual([{ project_id: "alpha" }]);
+  await expect(apiClient.getHealth()).resolves.toBe(true);
+  expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/cogito/api/v1/workbench/projects", { signal: undefined });
+  expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/cogito/healthz", { signal: undefined });
 });
 
 test("URL-encodes evidence digests", async () => {
