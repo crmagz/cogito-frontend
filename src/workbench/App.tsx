@@ -141,7 +141,7 @@ function WorkflowCanvas({ run, onBack, onDossier }: { run: Run; onBack: () => vo
   </section>;
 }
 
-function Dossier({ client, run, stage, onBack, onRefresh }: { client: ApiClient; run: Run; stage: string; onBack: () => void; onRefresh: () => Promise<void> }) {
+function Dossier({ client, run, stage, onBack, onRefresh, decisionNotice, onDecisionComplete }: { client: ApiClient; run: Run; stage: string; onBack: () => void; onRefresh: () => Promise<void>; decisionNotice: string | null; onDecisionComplete: () => void }) {
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [evidence, setEvidence] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -151,7 +151,7 @@ function Dossier({ client, run, stage, onBack, onRefresh }: { client: ApiClient;
   return <section className="view dossier-view" aria-labelledby="dossier-title">
     <div className="breadcrumb"><button onClick={onBack}>Workflow relay</button><span>/</span><b>{statusLabel(stage)}</b></div>
     <header className="dossier-head"><div><h1 id="dossier-title" className="dossier-title">{statusLabel(stage)}</h1><div className="dossier-meta"><span>projected node</span><span>{stageType(stage)}</span><Pill status={isActiveStage(stage, run.active_gate) ? "awaiting" : "idle"} label={isActiveStage(stage, run.active_gate) ? "awaiting decision" : "projected"} /></div></div><div className="d-kpis"><Kpi label="Run state" value={statusLabel(run.status)} /><Kpi label="Gate" value={run.active_gate ?? "—"} /></div></header>
-    <div className="dossier-content"><div className="dossier-grid"><section className="card dossier-summary"><p className="eyebrow">Authoritative run context</p><p className="dossier-description">This is a projected workflow node. Its own lifecycle is shown only when Cogito persists it; the run state remains {statusLabel(run.status)}.</p><div className="dossier-details"><div><span>Project</span><b>{run.project_id}</b></div><div><span>Run state</span><b>{statusLabel(run.status)}</b></div><div><span>Active gate</span><b>{run.active_gate ?? "None"}</b></div><div><span>Submitted</span><b>{new Date(run.submitted_at).toLocaleString()}</b></div></div></section><section className="card dossier-events"><h2 className="panel-title">Verified evidence</h2><div className="timeline">{selectedArtifact ? <button className={`tl-item evidence-event ${artifact?.kind === selectedArtifact.kind ? "selected" : ""}`} onClick={() => void openEvidence(selectedArtifact)}><i /><span><b>{selectedArtifact.kind} evidence</b><small>{selectedArtifact.sha256.slice(0, 12)}</small></span></button> : <p className="control-note">No immutable evidence is associated with this projected node.</p>}</div>{error && <p className="evidence-error" role="alert">{error}</p>}{evidence && <pre aria-label="Verified evidence">{evidence}</pre>}</section></div>{run.active_gate && <DecisionControls client={client} run={run} onComplete={onRefresh} />}</div>
+    <div className="dossier-content">{decisionNotice && <p className="sync-row" role="status">{decisionNotice}</p>}<div className="dossier-grid"><section className="card dossier-summary"><p className="eyebrow">Authoritative run context</p><p className="dossier-description">This is a projected workflow node. Its own lifecycle is shown only when Cogito persists it; the run state remains {statusLabel(run.status)}.</p><div className="dossier-details"><div><span>Project</span><b>{run.project_id}</b></div><div><span>Run state</span><b>{statusLabel(run.status)}</b></div><div><span>Active gate</span><b>{run.active_gate ?? "None"}</b></div><div><span>Submitted</span><b>{new Date(run.submitted_at).toLocaleString()}</b></div></div></section><section className="card dossier-events"><h2 className="panel-title">Verified evidence</h2><div className="timeline">{selectedArtifact ? <button className={`tl-item evidence-event ${artifact?.kind === selectedArtifact.kind ? "selected" : ""}`} onClick={() => void openEvidence(selectedArtifact)}><i /><span><b>{selectedArtifact.kind} evidence</b><small>{selectedArtifact.sha256.slice(0, 12)}</small></span></button> : <p className="control-note">No immutable evidence is associated with this projected node.</p>}</div>{error && <p className="evidence-error" role="alert">{error}</p>}{evidence && <pre aria-label="Verified evidence">{evidence}</pre>}</section></div><div className="dossier-grid workbench-facts"><section className="card"><h2 className="panel-title">Execution summary</h2>{run.execution ? <dl><dt>Phases</dt><dd>{run.execution.succeeded_phase_count} passed / {run.execution.failed_phase_count} failed / {run.execution.phase_count} recorded</dd><dt>Verification</dt><dd>{run.execution.verification_passed} passed / {run.execution.verification_failed} failed</dd><dt>Review</dt><dd>{run.execution.review_status ?? "Unavailable"}</dd><dt>Validation</dt><dd>{run.execution.validation_status ?? "Unavailable"}</dd></dl> : <p className="control-note">Execution facts are unavailable until a verified implementation artifact is recorded.</p>}<dl><dt>Cost limit</dt><dd>${run.budget.max_cost_usd.toFixed(2)}</dd><dt>Actual cost</dt><dd>{run.budget.actual_cost_usd === null ? "Unavailable" : `$${run.budget.actual_cost_usd.toFixed(2)}`}</dd><dt>Turns used</dt><dd>{run.budget.turns_used ?? "Unavailable"}</dd></dl></section><section className="card"><h2 className="panel-title">Approval history</h2>{run.approval_history_available ? run.approval_history.length ? <div className="timeline">{run.approval_history.map((approval) => <div className="tl-item" key={approval.decision_id}><i /><span><b>{approval.gate} {approval.decision}</b><small>{approval.actor_id} · {new Date(approval.created_at).toLocaleString()} · {approval.delivered ? "delivered" : "pending delivery"}</small></span></div>)}</div> : <p className="control-note">No operator decisions have been recorded.</p> : <p className="control-note">Approval history is available to approvers.</p>}{run.external_links.length > 0 && <div className="external-links">{run.external_links.map((link) => <a key={`${link.kind}:${link.url}`} href={link.url} target="_blank" rel="noreferrer">{link.label}</a>)}</div>}</section></div>{run.active_gate && <DecisionControls client={client} run={run} onComplete={onRefresh} onSuccess={onDecisionComplete} />}</div>
   </section>;
 }
 
@@ -175,6 +175,8 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
   const [collapsed, setCollapsed] = useState(false);
   const [dialog, setDialog] = useState<ShellDialog>(null);
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
+  const [detailRevision, setDetailRevision] = useState(0);
+  const [decisionNotice, setDecisionNotice] = useState<string | null>(null);
   const refreshGeneration = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
   const etags = useRef(new Map<string, string>());
@@ -197,6 +199,7 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
       if (!result.unchanged) {
         setRuns(result.runs);
         setSelected((current) => result.runs.find((item) => item.run_id === current?.run_id) ?? result.runs[0] ?? null);
+        setDetailRevision((value) => value + 1);
         if (result.runs.length === 0) {
           setStage("planning");
           setView("mission");
@@ -248,13 +251,26 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
   }, [pollDelay, projectsLoaded, refresh]);
   useEffect(() => () => activeRequest.current?.abort(), []);
   useEffect(() => { try { window.localStorage.setItem("cogito-workbench-theme", theme); } catch { /* Storage denial only affects preference persistence. */ } }, [theme]);
+  useEffect(() => {
+    if (!selected || view === "mission") return;
+    const controller = new AbortController();
+    let cancelled = false;
+    void client.getRun(selected.run_id, controller.signal).then((detail) => {
+      if (!cancelled) setSelected((current) => current?.run_id === detail.run_id ? detail : current);
+    }).catch((reason) => {
+      if (!cancelled && !(reason instanceof DOMException && reason.name === "AbortError")) {
+        setError("Unable to load the latest scoped workflow detail; showing the last known summary.");
+      }
+    });
+    return () => { cancelled = true; controller.abort(); };
+  }, [client, detailRevision, selected?.run_id, view]);
 
   const selectedRun = selected ?? runs[0] ?? null;
-  const openWorkflow = (run = selectedRun) => { if (run) { setSelected(run); setStage(run.workflow[0] ?? "planning"); setView("workflow"); } };
+  const openWorkflow = (run = selectedRun) => { if (run) { setDecisionNotice(null); setSelected(run); setStage(run.workflow[0] ?? "planning"); setView("workflow"); } };
   const content = useMemo(() => {
     if (view === "workflow" && selectedRun) return <WorkflowCanvas run={selectedRun} onBack={() => setView("mission")} onDossier={(nextStage) => { setStage(nextStage); setView("dossier"); }} />;
-    if (view === "dossier" && selectedRun) return <Dossier client={client} run={selectedRun} stage={stage} onBack={() => setView("workflow")} onRefresh={refresh} />;
+    if (view === "dossier" && selectedRun) return <Dossier client={client} run={selectedRun} stage={stage} onBack={() => setView("workflow")} onRefresh={refresh} decisionNotice={decisionNotice} onDecisionComplete={() => setDecisionNotice("Decision accepted; the authoritative state has been refreshed.")} />;
     return <MissionControl runs={runs} onSelect={openWorkflow} refresh={refresh} syncMessage={syncMessage} refreshing={refreshing} />;
-  }, [client, refresh, refreshing, runs, selectedRun, stage, syncMessage, view]);
+  }, [client, decisionNotice, refresh, refreshing, runs, selectedRun, stage, syncMessage, view]);
   return <main className="app-shell" data-theme={theme}><Sidebar projects={projects} selectedProject={selectedProject} onProjectChange={setSelectedProject} selected={selectedRun} activeView={view} onMission={() => setView("mission")} onWorkflow={() => openWorkflow()} onDossier={() => selectedRun && setView("dossier")} health={health} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((value) => !value)} onDialog={setDialog} /><div className="main-content">{error && <p className="app-error" role="alert">{error}</p>}{content}</div><ShellDialog dialog={dialog} onClose={() => setDialog(null)} theme={theme} setTheme={setTheme} selected={selectedRun} /></main>;
 }

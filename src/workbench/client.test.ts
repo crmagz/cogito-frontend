@@ -9,7 +9,12 @@ const run: Run = {
   active_gate: "plan",
   artifacts: [{ kind: "plan", sha256: "a".repeat(64) }],
   abilities: ["view", "approve"],
-  workflow: ["planning", "plan_approval"]
+  workflow: ["planning", "plan_approval"],
+  budget: { max_cost_usd: 3, max_wall_clock_minutes: 45, max_review_rounds: 2, actual_cost_usd: null, turns_used: null },
+  approval_history_available: true,
+  approval_history: [],
+  execution: null,
+  external_links: []
 };
 
 test("submits the exact displayed digest to the authoritative action route", async () => {
@@ -99,4 +104,13 @@ test("URL-encodes evidence digests", async () => {
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/cogito/api/v1/workbench/runs/run%2F123/evidence/plan?artifact_sha256=digest%26extra%3Dvalue"
   );
+});
+
+test("loads one scoped workflow detail through the fixed relay route", async () => {
+  const fetchMock = jest.fn(async () => ({ ok: true, status: 200, json: async () => run } as Response));
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  await expect(apiClient.getRun("run/123")).resolves.toEqual(run);
+
+  expect(fetchMock).toHaveBeenCalledWith("/api/cogito/api/v1/workbench/runs/run%2F123", { signal: undefined });
 });

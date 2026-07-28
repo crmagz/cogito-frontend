@@ -1,5 +1,9 @@
 export type Artifact = { kind: "source" | "plan" | "implementation"; sha256: string };
 export type Project = { project_id: string };
+export type Approval = { decision_id: string; gate: "plan" | "implementation"; decision: string; artifact_sha256: string; actor_id: string; created_at: string; delivered: boolean };
+export type Budget = { max_cost_usd: number; max_wall_clock_minutes: number; max_review_rounds: number; actual_cost_usd: number | null; turns_used: number | null };
+export type Execution = { phase_count: number; succeeded_phase_count: number; failed_phase_count: number; verification_passed: number; verification_failed: number; review_status: string | null; validation_status: string | null };
+export type ExternalLink = { kind: string; label: string; url: string };
 export type Run = {
   run_id: string;
   project_id: string;
@@ -9,12 +13,18 @@ export type Run = {
   artifacts: Artifact[];
   abilities: string[];
   workflow: string[];
+  budget: Budget;
+  approval_history_available: boolean;
+  approval_history: Approval[];
+  execution: Execution | null;
+  external_links: ExternalLink[];
 };
 
 export type ApiClient = {
   listProjects: (signal?: AbortSignal) => Promise<Project[]>;
   getHealth: (signal?: AbortSignal) => Promise<boolean>;
   listRuns: (options?: { projectId?: string; etag?: string; signal?: AbortSignal }) => Promise<{ runs: Run[]; revision: string; etag: string | null; unchanged: boolean }>;
+  getRun: (runId: string, signal?: AbortSignal) => Promise<Run>;
   getEvidence: (runId: string, artifact: Artifact) => Promise<{ content: string; sha256: string }>;
   decide: (run: Run, decision: "approve" | "reject" | "request_revision", comment?: string) => Promise<void>;
 };
@@ -42,6 +52,9 @@ export const apiClient: ApiClient = {
     if (response.status === 304) return { runs: [], revision: etag ?? "", etag: response.headers.get("etag") ?? etag ?? null, unchanged: true };
     const body = await json(response);
     return { runs: body.items, revision: body.revision, etag: response.headers.get("etag"), unchanged: false };
+  },
+  async getRun(runId, signal) {
+    return json(await fetch(`${base}/workbench/runs/${encodeURIComponent(runId)}`, { signal }));
   },
   async getEvidence(runId, artifact) {
     const response = await fetch(
