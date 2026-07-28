@@ -48,28 +48,32 @@ test("operator decision refreshes a browser-rendered authoritative workflow deta
     execution: detail ? { phase_count: 2, succeeded_phase_count: 2, failed_phase_count: 0, verification_passed: 2, verification_failed: 0, review_status: "converged", validation_status: "passed" } : null,
     external_links: detail ? [{ kind: "repository", label: "Repository", url: "https://github.com/acme/api-gateway" }] : []
   });
-  const upstream = createServer(async (request, response) => {
-    assert.equal(request.headers.authorization, "Bearer browser-e2e-token");
-    const requestUrl = new URL(request.url ?? "/", "http://upstream.test");
-    if (requestUrl.pathname === "/healthz") return send(response, 200, { status: "ok" });
-    if (requestUrl.pathname === "/api/v1/workbench/projects") return send(response, 200, { items: [{ project_id: "default" }] });
-    if (requestUrl.pathname === "/api/v1/workbench/runs") {
-      const etag = approved ? '"complete"' : '"waiting"';
-      if (request.headers["if-none-match"] === etag) return send(response, 304, null, { etag });
-      return send(response, 200, { items: [run()], revision: etag }, { etag });
-    }
-    if (request.url === "/api/v1/workbench/runs/run-browser-e2e") return send(response, 200, run(true));
-    if (request.url?.startsWith(`/api/v1/workbench/runs/run-browser-e2e/evidence/plan?artifact_sha256=${digest}`)) {
-      return send(response, 200, { kind: "plan", sha256: digest, content_type: "application/json", content: "{}" });
-    }
-    if (request.url === "/api/v1/coordination/runs/run-browser-e2e/actions/plan" && request.method === "POST") {
-      let body = "";
-      for await (const chunk of request) body += chunk;
-      actions.push({ payload: JSON.parse(body), key: request.headers["idempotency-key"] });
-      approved = true;
-      return send(response, 202, { decision_id: "decision-browser-e2e" });
-    }
-    return send(response, 404, { detail: "not found" });
+  const upstream = createServer((request, response) => {
+    void (async () => {
+      assert.equal(request.headers.authorization, "Bearer browser-e2e-token");
+      const requestUrl = new URL(request.url ?? "/", "http://upstream.test");
+      if (requestUrl.pathname === "/healthz") return send(response, 200, { status: "ok" });
+      if (requestUrl.pathname === "/api/v1/workbench/projects") return send(response, 200, { items: [{ project_id: "default" }] });
+      if (requestUrl.pathname === "/api/v1/workbench/runs") {
+        const etag = approved ? '"complete"' : '"waiting"';
+        if (request.headers["if-none-match"] === etag) return send(response, 304, null, { etag });
+        return send(response, 200, { items: [run()], revision: etag }, { etag });
+      }
+      if (request.url === "/api/v1/workbench/runs/run-browser-e2e") return send(response, 200, run(true));
+      if (request.url?.startsWith(`/api/v1/workbench/runs/run-browser-e2e/evidence/plan?artifact_sha256=${digest}`)) {
+        return send(response, 200, { kind: "plan", sha256: digest, content_type: "application/json", content: "{}" });
+      }
+      if (request.url === "/api/v1/coordination/runs/run-browser-e2e/actions/plan" && request.method === "POST") {
+        let body = "";
+        for await (const chunk of request) body += chunk;
+        actions.push({ payload: JSON.parse(body), key: request.headers["idempotency-key"] });
+        approved = true;
+        return send(response, 202, { decision_id: "decision-browser-e2e" });
+      }
+      return send(response, 404, { detail: "not found" });
+    })().catch(() => {
+      if (!response.headersSent) send(response, 500, { detail: "browser E2E upstream fixture failed" });
+    });
   });
   const upstreamOrigin = await listen(upstream);
   const dirname = path.dirname(fileURLToPath(import.meta.url));

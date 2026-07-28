@@ -82,7 +82,7 @@ test("operates workflow-only navigation, zoom, shell controls, and visible refre
     listRuns: jest
       .fn<ApiClient["listRuns"]>()
       .mockResolvedValueOnce({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false })
-      .mockResolvedValueOnce({ runs: [], revision: "first", etag: "first", unchanged: true }),
+      .mockResolvedValue({ runs: [], revision: "first", etag: "first", unchanged: true }),
     getRun: async () => waitingRun,
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide: async () => undefined
@@ -169,18 +169,19 @@ test("fails closed when the authorized project inventory cannot be loaded", asyn
   expect(listRuns).not.toHaveBeenCalled();
 });
 
-test("returns to Mission Control when polling removes the selected workflow", async () => {
+test("does not poll or refetch details while a workflow is open", async () => {
   jest.useFakeTimers();
   try {
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    const listRuns = jest
+      .fn<ApiClient["listRuns"]>()
+      .mockResolvedValue({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false });
+    const getRun = jest.fn<ApiClient["getRun"]>().mockResolvedValue(waitingRun);
     const client: ApiClient = {
       listProjects: async () => [],
       getHealth: async () => true,
-      listRuns: jest
-        .fn<ApiClient["listRuns"]>()
-      .mockResolvedValueOnce({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false })
-      .mockResolvedValueOnce({ runs: [], revision: "second", etag: "second", unchanged: false }),
-      getRun: async () => waitingRun,
+      listRuns,
+      getRun,
       getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
       decide: async () => undefined
     };
@@ -188,10 +189,11 @@ test("returns to Mission Control when polling removes the selected workflow", as
     render(<App client={client} />);
     await user.click(await screen.findByText("run-1234"));
     expect(await screen.findByRole("heading", { name: "Workflow relay" })).toBeVisible();
+    await act(async () => {});
     await act(async () => { await jest.advanceTimersByTimeAsync(15_000); });
 
-    expect(await screen.findByRole("heading", { name: "Mission Control" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Workflows" })).toBeDisabled();
+    expect(listRuns).toHaveBeenCalledTimes(1);
+    expect(getRun).toHaveBeenCalledTimes(1);
   } finally {
     jest.useRealTimers();
   }
@@ -199,7 +201,12 @@ test("returns to Mission Control when polling removes the selected workflow", as
 
 test("does not present approval history as empty when the scoped viewer cannot read it", async () => {
   const user = userEvent.setup();
-  const viewerRun = { ...waitingRun, abilities: ["view"], approval_history_available: false };
+  const viewerRun = {
+    ...waitingRun,
+    abilities: ["view"],
+    approval_history_available: false,
+    external_links: [{ kind: "repository", label: "Repository", url: "https://github.com/acme/api-gateway" }]
+  };
   const client: ApiClient = {
     listProjects: async () => [{ project_id: "default" }],
     getHealth: async () => true,
@@ -215,4 +222,5 @@ test("does not present approval history as empty when the scoped viewer cannot r
 
   expect(await screen.findByText("Approval history is available to approvers.")).toBeVisible();
   expect(screen.queryByText("No operator decisions have been recorded.")).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Repository" })).toHaveAttribute("rel", "noopener noreferrer");
 });
