@@ -41,3 +41,31 @@ workflow runs the same locked install, build, lint, typecheck, and test steps;
 it has no ECR or CodeArtifact publish target for this repository. The release
 workflow builds qualifying conventional-commit changes on `main`, then creates
 the matching `frontend/vX.Y.Z` tag and GitHub release through Forge.
+
+## Browser E2E
+
+The hermetic browser suite starts the built Workbench with a constrained local
+relay and a deterministic upstream fixture. It covers scoped inventory,
+workflow navigation, evidence rendering, approval feedback, and the persisted
+post-decision state:
+
+```sh
+npm run test:e2e
+```
+
+The opt-in Kind browser test remains in the repository test suite rather than
+in an operator script. It requires a locally forwarded API, a non-production
+development token, and the identifier of an existing scoped run. It is
+read-only unless `COGITO_E2E_DECISION=request_revision` is set:
+
+```sh
+COGITO_KIND_E2E=1 \
+COGITO_E2E_UPSTREAM_URL=http://127.0.0.1:8000 \
+COGITO_E2E_UPSTREAM_TOKEN=<development-token> \
+COGITO_E2E_RUN_ID=<run-id> \
+npm run test:e2e:kind
+```
+
+Use a separate terminal for the local API forwarding command shown above. The
+test never reads cluster credentials or passes the relay token to browser
+JavaScript.

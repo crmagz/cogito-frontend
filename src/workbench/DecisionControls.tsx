@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { ApiClient, Run } from "./client";
 
-export function DecisionControls({ client, run, onComplete }: { client: ApiClient; run: Run; onComplete: () => Promise<void> }) {
+export function DecisionControls({ client, run, onComplete, onSuccess }: { client: ApiClient; run: Run; onComplete: () => Promise<void>; onSuccess?: () => void }) {
   const [comment, setComment] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -17,6 +17,7 @@ export function DecisionControls({ client, run, onComplete }: { client: ApiClien
       setMessage(null);
       await client.decide(run, decision, comment);
       await onComplete();
+      onSuccess?.();
       setMessage("Decision accepted; the authoritative state has been refreshed.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Decision could not be submitted.");

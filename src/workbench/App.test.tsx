@@ -13,7 +13,12 @@ const waitingRun: Run = {
   active_gate: "plan",
   artifacts: [{ kind: "plan", sha256: "a".repeat(64) }],
   abilities: ["view", "approve"],
-  workflow: ["planning", "plan", "plan_approval"]
+  workflow: ["planning", "plan", "plan_approval"],
+  budget: { max_cost_usd: 3, max_wall_clock_minutes: 45, max_review_rounds: 2, actual_cost_usd: null, turns_used: null },
+  approval_history_available: true,
+  approval_history: [],
+  execution: null,
+  external_links: []
 };
 
 test("renders the relay grid drill-down and rejects blank revision rationales", async () => {
@@ -23,6 +28,7 @@ test("renders the relay grid drill-down and rejects blank revision rationales", 
     listProjects: async () => [{ project_id: "default" }],
     getHealth: async () => true,
     listRuns: async () => ({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false }),
+    getRun: async () => waitingRun,
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide
   };
@@ -55,6 +61,7 @@ test("does not let a stale refresh overwrite a newer authoritative response", as
     listProjects: async () => [],
     getHealth: async () => true,
     listRuns: jest.fn<ApiClient["listRuns"]>().mockReturnValueOnce(first).mockReturnValueOnce(second),
+    getRun: async () => waitingRun,
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide: async () => undefined
   };
@@ -76,6 +83,7 @@ test("operates workflow-only navigation, zoom, shell controls, and visible refre
       .fn<ApiClient["listRuns"]>()
       .mockResolvedValueOnce({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false })
       .mockResolvedValueOnce({ runs: [], revision: "first", etag: "first", unchanged: true }),
+    getRun: async () => waitingRun,
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide: async () => undefined
   };
@@ -110,6 +118,7 @@ test("selects only authorized projects through the server-backed inventory", asy
     listProjects: async () => [{ project_id: "alpha" }, { project_id: "beta" }],
     getHealth: async () => true,
     listRuns,
+    getRun: async () => waitingRun,
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide: async () => undefined
   };
@@ -129,6 +138,7 @@ test("does not poll before server-authorized project inventory resolves", async 
     listProjects: async () => projects,
     getHealth: async () => true,
     listRuns,
+    getRun: async () => waitingRun,
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide: async () => undefined
   };
@@ -147,6 +157,7 @@ test("fails closed when the authorized project inventory cannot be loaded", asyn
     listProjects: async () => { throw new Error("project service unavailable"); },
     getHealth: async () => true,
     listRuns,
+    getRun: async () => waitingRun,
     getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
     decide: async () => undefined
   };
@@ -167,8 +178,9 @@ test("returns to Mission Control when polling removes the selected workflow", as
       getHealth: async () => true,
       listRuns: jest
         .fn<ApiClient["listRuns"]>()
-        .mockResolvedValueOnce({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false })
-        .mockResolvedValueOnce({ runs: [], revision: "second", etag: "second", unchanged: false }),
+      .mockResolvedValueOnce({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false })
+      .mockResolvedValueOnce({ runs: [], revision: "second", etag: "second", unchanged: false }),
+      getRun: async () => waitingRun,
       getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
       decide: async () => undefined
     };
@@ -183,4 +195,24 @@ test("returns to Mission Control when polling removes the selected workflow", as
   } finally {
     jest.useRealTimers();
   }
+});
+
+test("does not present approval history as empty when the scoped viewer cannot read it", async () => {
+  const user = userEvent.setup();
+  const viewerRun = { ...waitingRun, abilities: ["view"], approval_history_available: false };
+  const client: ApiClient = {
+    listProjects: async () => [{ project_id: "default" }],
+    getHealth: async () => true,
+    listRuns: async () => ({ runs: [viewerRun], revision: "viewer", etag: "viewer", unchanged: false }),
+    getRun: async () => viewerRun,
+    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
+    decide: async () => undefined
+  };
+
+  render(<App client={client} />);
+  await user.click(await screen.findByText("run-1234"));
+  await user.click(screen.getByRole("button", { name: /plan queue/i }));
+
+  expect(await screen.findByText("Approval history is available to approvers.")).toBeVisible();
+  expect(screen.queryByText("No operator decisions have been recorded.")).not.toBeInTheDocument();
 });
