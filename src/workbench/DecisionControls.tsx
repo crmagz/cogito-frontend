@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ApiClient, Run } from "./client";
 
@@ -6,6 +6,12 @@ export function DecisionControls({ client, run, onComplete, onSuccess }: { clien
   const [comment, setComment] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   async function decide(decision: "approve" | "reject" | "request_revision") {
     if (decision !== "approve" && !comment.trim()) {
@@ -18,11 +24,10 @@ export function DecisionControls({ client, run, onComplete, onSuccess }: { clien
       await client.decide(run, decision, comment);
       await onComplete();
       onSuccess?.();
-      setMessage("Decision accepted; the authoritative state has been refreshed.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Decision could not be submitted.");
+      if (mounted.current) setMessage(error instanceof Error ? error.message : "Decision could not be submitted.");
     } finally {
-      setPending(false);
+      if (mounted.current) setPending(false);
     }
   }
 
