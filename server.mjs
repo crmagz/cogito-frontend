@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const allowed = [
   { method: "GET", path: /^\/healthz$/ },
   { method: "GET", path: /^\/api\/v1\/workbench\/projects$/ },
-  { method: "GET", path: /^\/api\/v1\/workbench\/runs(?:\/[^/]+(?:\/evidence\/(?:source|plan|implementation))?)?$/ },
+  { method: "GET", path: /^\/api\/v1\/workbench\/runs(?:\/[^/]+(?:\/(?:timeline|evidence\/(?:source|plan|implementation)))?)?$/ },
   { method: "POST", path: /^\/api\/v1\/coordination\/runs\/[^/]+\/actions\/(?:plan|implementation)$/ }
 ];
 
@@ -56,7 +56,14 @@ export function createDevelopmentServer({ upstreamUrl, token, staticDirectory, e
     throw new Error("Production startup requires an OIDC session relay; static upstream tokens are development-only");
   }
   const app = createRelay({ upstreamUrl, token });
-  if (staticDirectory) app.use(express.static(staticDirectory));
+  if (staticDirectory) {
+    app.use(express.static(staticDirectory));
+    app.use((request, response, next) => {
+      const isApiPath = request.path === "/api" || request.path.startsWith("/api/");
+      if (request.method !== "GET" || request.path === "/healthz" || isApiPath) return next();
+      return response.sendFile("index.html", { root: staticDirectory });
+    });
+  }
   return app;
 }
 

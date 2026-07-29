@@ -1,9 +1,9 @@
 # Cogito Operator Workbench
 
-An evidence-first, project-scoped operator console for Cogito. It presents
-authoritative Mission Control inventory, a server-projected workflow relay, and
-a digest-bound evidence dossier. It is deliberately not a chat client and it
-does not directly access object storage or Temporal.
+An evidence-first, project-scoped operator console for Cogito. It presents a
+filterable Runs inbox, deep-linkable run detail, an authoritative lifecycle
+timeline, and digest-bound evidence and approval views. It is deliberately not
+a chat client and it does not directly access object storage or Temporal.
 
 ## Local development
 
@@ -46,8 +46,8 @@ the matching `frontend/vX.Y.Z` tag and GitHub release through Forge.
 
 The hermetic browser suite starts the built Workbench with a constrained local
 relay and a deterministic upstream fixture. It covers scoped inventory,
-workflow navigation, evidence rendering, approval feedback, and the persisted
-post-decision state:
+deep-link reload, timeline rendering, verified evidence, approval feedback,
+and the persisted post-decision state:
 
 ```sh
 npm run test:e2e
@@ -55,8 +55,8 @@ npm run test:e2e
 
 The opt-in Kind browser test remains in the repository test suite rather than
 in an operator script. It requires a locally forwarded API, a non-production
-development token, and the identifier of an existing scoped run. It is
-read-only unless `COGITO_E2E_DECISION=request_revision` is set:
+development token, and the identifier of an existing scoped run with plan
+evidence. It is read-only unless `COGITO_E2E_DECISION=request_revision` is set:
 
 ```sh
 COGITO_KIND_E2E=1 \

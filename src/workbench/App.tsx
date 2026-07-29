@@ -1,275 +1,268 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { apiClient, type ApiClient, type Artifact, type Project, type Run } from "./client";
+import { apiClient, type ApiClient, type Artifact, type Project, type Run, type Stage, type TimelineEvent } from "./client";
 import { DecisionControls } from "./DecisionControls";
 
-type View = "mission" | "workflow" | "dossier";
-type ShellDialog = "help" | "settings" | "account" | null;
+type DetailTab = "summary" | "workflow" | "timeline" | "artifacts" | "plan" | "execution" | "review" | "approvals";
 type Theme = "system" | "dark" | "light";
 type Health = "checking" | "connected" | "unavailable";
+type InboxFilter = "all" | "waiting" | "running" | "completed" | "failed";
+type ShellNav = "mission" | "workflows" | "runs" | "agents" | "tools" | "datasets" | "secrets" | "policies" | "schedules" | "audit";
+type NodeDossierTab = "overview" | "execution-log" | "configuration" | "dependencies" | "history";
+type WorkflowView = "mission" | "canvas" | "node" | "legacy";
+type WorkflowNode = { id: string; name: string; type: "agent" | "gate" | "queue"; status: string; availability: Stage["availability"]; artifactKind: Artifact["kind"] | null; reason: string; position?: { x: number; y: number; width: number }; metric: string };
+type WorkflowEdge = { fromNodeId: string; toNodeId: string; style: "solid" | "dashed"; emphasis: "primary" | "secondary" };
+type PositionedWorkflowNode = WorkflowNode & { position: { x: number; y: number; width: number } };
 
-function statusLabel(status: string) {
-  return status.replaceAll("_", " ");
-}
+const tabs: Array<{ id: DetailTab; label: string }> = [
+  { id: "summary", label: "Summary" }, { id: "workflow", label: "Workflow map" }, { id: "timeline", label: "Timeline" }, { id: "artifacts", label: "Artifacts" },
+  { id: "plan", label: "Plan" }, { id: "execution", label: "Execution" }, { id: "review", label: "Review" }, { id: "approvals", label: "Approvals" }
+];
 
-function statusTone(status: string) {
-  if (status.includes("reject") || status.includes("fail")) return "err";
-  if (status.includes("await") || status.includes("revision")) return "warn";
-  if (status.includes("complete") || status.includes("approve")) return "run";
+function statusLabel(value: string) { return value.replaceAll("_", " "); }
+function statusTone(value: string) {
+  if (value.includes("reject") || value.includes("fail")) return "err";
+  if (value.includes("await") || value.includes("revision")) return "warn";
+  if (value.includes("in_progress") || value.includes("planning") || value.includes("implementing") || value.includes("running")) return "active";
+  if (value.includes("complete") || value.includes("approve") || value.includes("succeed")) return "run";
   return "idle";
 }
-
-function Pill({ status, label = statusLabel(status) }: { status: string; label?: string }) {
-  return <span className={`pill ${statusTone(status)}`}><i />{label}</span>;
-}
-
-function Icon({ name }: { name: string }) {
-  const paths: Record<string, string> = {
-    grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
-    flow: "M5 5v6h6M19 19v-6h-6M11 11l2 2M13 11l-2 2",
-    node: "M12 3v18M3 12h18M5 5l14 14M19 5 5 19",
-    database: "M4 6c0 2 16 2 16 0s-16-2-16 0Zm0 0v6c0 2 16 2 16 0V6m-16 6v6c0 2 16 2 16 0v-6",
-    settings: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm0-5v2m0 14v2m9-9h-2M5 12H3m15.4-6.4-1.4 1.4M7 17l-1.4 1.4m12.8 0L17 17M7 7 5.6 5.6",
-    help: "M9.5 9a2.5 2.5 0 1 1 4.3 1.7c-1 .7-1.8 1.1-1.8 2.8M12 18h.01M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20",
-    bolt: "m13 2-9 12h7l-1 8 9-12h-7z"
-  };
-  return <svg className="icon" viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name] ?? paths.grid} /></svg>;
-}
-
+function Pill({ status, label = statusLabel(status) }: { status: string; label?: string }) { return <span className={`pill ${statusTone(status)}`}><i />{label}</span>; }
 function relativeTime(value: string) {
   const seconds = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
-  if (seconds < 15) return "now";
-  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 60) return seconds < 15 ? "now" : `${seconds}s ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   return `${Math.floor(seconds / 3600)}h ago`;
 }
-
-function stageType(stage: string) {
-  return stage.endsWith("_approval") ? "gate" : stage === "plan" || stage === "implementation" ? "queue" : "agent";
+function Kpi({ label, value }: { label: string; value: string | number }) { return <div className="kpi"><p>{label}</p><b>{value}</b></div>; }
+function readStoredTheme(): Theme { try { const value = window.localStorage.getItem("cogito-workbench-theme"); return value === "light" || value === "dark" || value === "system" ? value : "system"; } catch { return "system"; } }
+function evidenceFor(run: Run, kind: Artifact["kind"]) { return run.artifacts.find((artifact) => artifact.kind === kind) ?? null; }
+function isWaiting(run: Run) { return run.active_gate !== null; }
+function filterRun(run: Run, filter: InboxFilter, search: string) {
+  const searchable = `${run.run_id} ${run.workflow_id ?? ""} ${run.project_id} ${run.status}`.toLowerCase();
+  if (search && !searchable.includes(search.toLowerCase())) return false;
+  if (filter === "waiting") return isWaiting(run);
+  if (filter === "running") return run.status.includes("running");
+  if (filter === "completed") return run.status.includes("completed");
+  if (filter === "failed") return run.status.includes("failed") || run.status.includes("rejected");
+  return true;
 }
 
-function isActiveStage(stage: string, activeGate: Run["active_gate"]) {
-  return activeGate !== null && (stage === activeGate || stage === `${activeGate}_approval`);
-}
+const shellNavItems: Array<{ id: ShellNav; label: string; glyph: string; available?: boolean }> = [
+  { id: "mission", label: "Mission Control", glyph: "◎", available: true }, { id: "workflows", label: "Workflows", glyph: "⌘" },
+  { id: "runs", label: "Runs", glyph: "▤" }, { id: "agents", label: "Agents", glyph: "▦" },
+  { id: "tools", label: "Tools", glyph: "⌁" }, { id: "datasets", label: "Datasets", glyph: "◫" },
+  { id: "secrets", label: "Secrets", glyph: "⌖" }, { id: "policies", label: "Policies", glyph: "◇" },
+  { id: "schedules", label: "Schedules", glyph: "◷" }, { id: "audit", label: "Audit Log", glyph: "▧" }
+];
 
-function stageArtifact(run: Run, stage: string) {
-  const kind = stage === "planning" ? "source" : stage === "plan" ? "plan" : stage === "implementation" ? "implementation" : null;
-  return kind ? run.artifacts.find((artifact) => artifact.kind === kind) ?? null : null;
-}
-
-function Kpi({ label, value }: { label: string; value: string | number }) {
-  return <div className="kpi"><p>{label}</p><b>{value}</b></div>;
-}
-
-function ShellDialog({ dialog, onClose, theme, setTheme, selected }: {
-  dialog: ShellDialog;
-  onClose: () => void;
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
-  selected: Run | null;
-}) {
-  if (!dialog) return null;
-  const title = dialog === "help" ? "Workbench help" : dialog === "settings" ? "Display settings" : "Operator account";
-  return <div className="dialog-backdrop" role="presentation"><section className="shell-dialog" role="dialog" aria-modal="true" aria-labelledby="shell-dialog-title">
-    <header><h2 id="shell-dialog-title">{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={onClose}>×</button></header>
-    {dialog === "help" && <p>The Workbench shows only project-scoped, server-authoritative run state. Select a workflow to inspect verified evidence or act on an active approval gate.</p>}
-    {dialog === "account" && <dl><dt>Current project</dt><dd>{selected?.project_id ?? "No project selected"}</dd><dt>Access</dt><dd>Server-authorized Workbench session</dd></dl>}
-    {dialog === "settings" && <fieldset><legend>Theme</legend>{(["system", "dark", "light"] as Theme[]).map((option) => <label key={option}><input type="radio" name="theme" checked={theme === option} onChange={() => setTheme(option)} /> {option}</label>)}</fieldset>}
-  </section></div>;
-}
-
-function Sidebar({ projects, selectedProject, onProjectChange, selected, activeView, onMission, onWorkflow, onDossier, health, collapsed, onToggleCollapsed, onDialog }: {
-  projects: Project[];
-  selectedProject: string | undefined;
-  onProjectChange: (projectId: string | undefined) => void;
-  selected: Run | null;
-  activeView: View;
-  onMission: () => void;
-  onWorkflow: () => void;
-  onDossier: () => void;
-  health: Health;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
-  onDialog: (dialog: Exclude<ShellDialog, null>) => void;
-}) {
+function Sidebar({ projects, selectedProject, setSelectedProject, health, theme, setTheme, onRuns }: { projects: Project[]; selectedProject: string | undefined; setSelectedProject: (value: string | undefined) => void; health: Health; theme: Theme; setTheme: (theme: Theme) => void; onRuns: () => void }) {
+  const [collapsed, setCollapsed] = useState(false);
   const healthLabel = health === "connected" ? "Authoritative relay connected" : health === "checking" ? "Checking relay connection" : "Relay connection unavailable";
   return <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
-    <div className="brand-row"><div className="brand-mark">◆</div><div><strong>COGITO</strong><small>Operator Workbench</small></div><button className="icon-button" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={onToggleCollapsed}>{collapsed ? "»" : "«"}</button></div>
-    <div className="workspace-switcher">
-      <span className="workspace-icon"><Icon name="flow" /></span>
-      {projects.length > 1 ? <label><span className="sr-only">Active project</span><select aria-label="Active project" value={selectedProject ?? ""} onChange={(event) => onProjectChange(event.target.value || undefined)}><option value="">All authorized projects</option>{projects.map((project) => <option key={project.project_id} value={project.project_id}>{project.project_id}</option>)}</select></label> : <span><b>{projects[0]?.project_id ?? selected?.project_id ?? "Cogito"}</b><small><i className={`health-dot ${health}`} />{healthLabel}</small></span>}
-    </div>
-    <p className="nav-label">Workspace</p>
-    <nav aria-label="Workbench navigation">
-      <button className={activeView === "mission" ? "active" : ""} onClick={onMission}><Icon name="grid" /><span>Mission Control</span>{activeView === "mission" && <i className="nav-dot" />}</button>
-      <button className={activeView !== "mission" ? "active" : ""} disabled={!selected} onClick={onWorkflow}><Icon name="flow" /><span>Workflows</span>{activeView !== "mission" && <i className="nav-dot" />}</button>
-    </nav>
-    <div className="sidebar-bottom">
-      <section className="quick-actions"><p className="nav-label">Quick actions</p><button disabled={!selected} onClick={onWorkflow}>Open workflow</button><button disabled={!selected} onClick={onDossier}>View dossier</button><p className="control-note">Workflow submission and agent creation are not configured for this operator surface.</p></section>
-      <section className="system-status"><p className="nav-label">System status</p><b><i className={`health-dot ${health}`} />{healthLabel}</b><small>Derived from the relay health check</small></section>
-      <footer><button className="icon-button" aria-label="Open help" onClick={() => onDialog("help")}><Icon name="help" /></button><button className="icon-button" aria-label="Open display settings" onClick={() => onDialog("settings")}><Icon name="settings" /></button><button className="avatar" aria-label="Open operator account" onClick={() => onDialog("account")}>CR<i /></button></footer>
-    </div>
+    <div className="brand-row"><div className="brand-mark">◆</div><div><strong>COGITO</strong><small>AI Orchestration</small></div><button className="icon-button collapse-button" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setCollapsed((value) => !value)}>{collapsed ? "»" : "«"}</button></div>
+    <div className="workspace-switcher"><span className="workspace-icon">◇</span><label><span className="sr-only">Active project</span><select aria-label="Active project" value={selectedProject ?? ""} onChange={(event) => setSelectedProject(event.target.value || undefined)}><option value="">All authorized projects</option>{projects.map((project) => <option key={project.project_id} value={project.project_id}>{project.project_id}</option>)}</select><small><i className={`health-dot ${health}`} />Operational</small></label><span className="workspace-chevron" aria-hidden="true">⌄</span></div>
+    <p className="nav-label">Workspace</p><nav aria-label="Workbench navigation">{shellNavItems.map((item) => <button key={item.id} className={item.id === "mission" ? "active" : ""} disabled={!item.available} aria-current={item.id === "mission" ? "page" : undefined} title={item.available ? item.label : `${item.label} is not available yet`} onClick={item.available ? onRuns : undefined}><span className="nav-glyph" aria-hidden="true">{item.glyph}</span><span>{item.label}</span>{item.id === "mission" && <i className="nav-dot" />}</button>)}</nav>
+    <div className="sidebar-bottom"><section className="quick-actions"><p className="nav-label">Quick actions</p><button disabled>New Workflow <span>+</span></button><button disabled>Trigger Run</button><button disabled>Create Agent</button><button disabled>View Dossiers</button></section><section className="system-status"><p className="nav-label">System status</p><b><i className={`health-dot ${health}`} />{health === "connected" ? "All Systems Operational" : healthLabel}</b><small>Derived from the relay health check</small></section><footer><span className="shell-footer-symbol" aria-hidden="true">?</span><label className="sr-only" htmlFor="theme-select">Theme</label><select id="theme-select" aria-label="Theme" value={theme} onChange={(event) => setTheme(event.target.value as Theme)}><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select><button className="avatar" aria-label="Operator profile">OP<i /></button></footer></div>
   </aside>;
 }
 
-function MissionControl({ runs, onSelect, refresh, syncMessage, refreshing }: { runs: Run[]; onSelect: (run: Run) => void; refresh: () => Promise<void>; syncMessage: string; refreshing: boolean }) {
-  const awaiting = runs.filter((run) => run.active_gate).length;
-  const artifacts = runs.reduce((total, run) => total + run.artifacts.length, 0);
+function MissionControl({ runs, onOpen, refresh, refreshing, syncMessage }: { runs: Run[]; onOpen: (run: Run, tab?: DetailTab) => void; refresh: () => Promise<void>; refreshing: boolean; syncMessage: string }) {
+  const [filter, setFilter] = useState<InboxFilter>("all");
+  const [search, setSearch] = useState("");
+  const filtered = runs.filter((run) => filterRun(run, filter, search));
+  const counts: Record<InboxFilter, number> = { all: runs.length, waiting: runs.filter(isWaiting).length, running: runs.filter((run) => run.status.includes("running")).length, completed: runs.filter((run) => run.status.includes("completed")).length, failed: runs.filter((run) => run.status.includes("failed") || run.status.includes("rejected")).length };
+  const active = runs.filter((run) => run.active_gate !== null || run.status.includes("planning") || run.status.includes("implementing")).length;
   return <section className="view mission-view" aria-labelledby="mission-control-title">
-    <header className="flow-header"><div><h1 id="mission-control-title">Mission Control</h1><p>{runs.length} authoritative runs <span /> {awaiting} gates awaiting <span /> Relay-synced inventory</p></div><div className="kpis"><Kpi label="Active workflows" value={runs.length} /><Kpi label="Open gates" value={awaiting} /><Kpi label="Verified evidence" value={artifacts} /><Kpi label="Project scope" value={runs[0]?.project_id ?? "—"} /></div></header>
+    <header className="flow-header"><div><h1 id="mission-control-title">Mission Control</h1><p className="mission-meta"><span>{runs.length} workflows</span><span>{runs.filter((run) => run.workflow_id).length} execution identities</span></p></div><div className="kpis"><Kpi label="Active workflows" value={active} /><Kpi label="Total throughput" value="—" /><Kpi label="Avg success" value="—" /><Kpi label="Open alerts" value={counts.failed} /></div></header>
+    <div className="inbox-toolbar"><div className="filter-tabs" role="tablist" aria-label="Run filters">{(["all", "waiting", "running", "completed", "failed"] as InboxFilter[]).map((name) => <button key={name} role="tab" aria-selected={filter === name} onClick={() => setFilter(name)}>{name === "waiting" ? "Awaiting decision" : statusLabel(name)} <b>{counts[name]}</b></button>)}</div><label className="search-control">Search runs<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Run, workflow, project, status" /></label></div>
     <div className="sync-row" role="status" aria-live="polite">{syncMessage}</div>
-    <div className="table-wrap"><table><thead><tr><th>Status</th><th>Workflow</th><th>Flow ID</th><th>Projection</th><th>Evidence</th><th>Gate</th><th>Last run</th></tr></thead><tbody>
-      {runs.length === 0 ? <tr><td colSpan={7} className="empty">No project-scoped workflows are currently available.</td></tr> : runs.map((run) => <tr key={run.run_id} onClick={() => onSelect(run)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onSelect(run)}><td><Pill status={run.status} /></td><td><b>{run.run_id.slice(0, 8)}</b><small>Cogito planning workflow</small></td><td className="mono">flow_{run.run_id.slice(0, 8)}</td><td>{run.workflow.length > 1 ? `${run.workflow.length} projected nodes` : "Single projected node"}</td><td className="mono">{run.artifacts.length} verified</td><td>{run.active_gate ? <Pill status="awaiting" label={`${run.active_gate} gate`} /> : "—"}</td><td className="mono">{relativeTime(run.submitted_at)}</td></tr>)}</tbody></table></div>
-    <button className="refresh-button" aria-busy={refreshing} onClick={() => void refresh()}><Icon name="bolt" />{refreshing ? "Refreshing authoritative state…" : "Refresh authoritative state"}</button>
+    <div className="table-wrap mission-table-wrap"><table><thead><tr><th>Status</th><th>Workflow</th><th>Flow ID</th><th>Type</th><th>Throughput</th><th>P95 latency</th><th>Success</th><th>Last run</th></tr></thead><tbody>{filtered.length === 0 ? <tr><td colSpan={8} className="empty">No scoped workflows match this Mission Control view.</td></tr> : filtered.map((run) => <tr key={run.run_id} onClick={() => onOpen(run)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onOpen(run)}><td><Pill status={run.status} /></td><td className="workflow-name-cell"><b>{run.workflow_id ?? "Planning run"}</b><small>{run.project_id}</small></td><td className="mono workflow-id-cell">{run.run_id}</td><td>Planning run · {run.artifacts.length} evidence</td><td className="mono">—</td><td className="mono">—</td><td className="mono">—</td><td title={new Date(run.submitted_at).toLocaleString()}>{relativeTime(run.submitted_at)}</td></tr>)}</tbody></table></div>
+    <button className="refresh-button" aria-busy={refreshing} onClick={() => void refresh()}>{refreshing ? "Refreshing authoritative state…" : "Refresh Mission Control"}</button>
   </section>;
 }
 
-function WorkflowCanvas({ run, onBack, onDossier }: { run: Run; onBack: () => void; onDossier: (stage: string) => void }) {
+function EvidenceViewer({ client, run, initial }: { client: ApiClient; run: Run; initial?: Artifact["kind"] }) {
+  const [selected, setSelected] = useState<Artifact | null>(() => initial ? evidenceFor(run, initial) : run.artifacts[0] ?? null);
+  const [content, setContent] = useState(""); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(false);
+  useEffect(() => { setSelected(initial ? evidenceFor(run, initial) : run.artifacts[0] ?? null); setContent(""); setError(null); }, [initial, run.run_id]);
+  const open = async (artifact: Artifact) => { setSelected(artifact); setLoading(true); setError(null); try { setContent((await client.getEvidence(run.run_id, artifact)).content); } catch (reason) { setContent(""); setError(reason instanceof Error ? reason.message : "Verified evidence is unavailable."); } finally { setLoading(false); } };
+  return <section className="card evidence-card"><h2 className="panel-title">Verified immutable evidence</h2><div className="artifact-list">{run.artifacts.map((artifact) => <button key={`${artifact.kind}:${artifact.sha256}`} className={selected?.sha256 === artifact.sha256 ? "selected" : ""} onClick={() => void open(artifact)}><b>{artifact.kind}</b><small>{artifact.sha256.slice(0, 12)}</small></button>)}</div>{selected && <p className="control-note">Digest: <span className="mono">{selected.sha256}</span></p>}{loading && <p className="control-note" role="status">Loading verified evidence…</p>}{error && <p className="evidence-error" role="alert">{error}</p>}{content && <pre aria-label="Verified evidence">{content}</pre>}{!selected && <p className="control-note">No immutable evidence is available for this run.</p>}</section>;
+}
+
+function Timeline({ events }: { events: TimelineEvent[] }) { return <section className="card"><h2 className="panel-title">Authoritative timeline</h2>{events.length === 0 ? <p className="control-note">No persisted lifecycle events are available yet.</p> : <div className="timeline">{events.map((event) => <div className="tl-item" key={event.event_id}><i /><span><b>{statusLabel(event.event_type)}</b><small>{new Date(event.occurred_at).toLocaleString()} · {event.gate ? `${event.gate} gate` : event.lifecycle_status ?? "lifecycle event"}{event.decision ? ` · ${event.decision}` : ""}{event.artifact_sha256 ? ` · ${event.artifact_sha256.slice(0, 12)}` : ""}</small></span><Pill status={event.delivered ? "delivered" : "pending"} label={event.delivered ? "delivered" : `${event.delivery_attempt_count} attempts`} /></div>)}</div>}</section>; }
+
+function stageTone(stage: Stage) { return stage.state === "failed" ? "err" : stage.state === "awaiting_operator" || stage.state === "needs_revision" ? "warn" : stage.state === "in_progress" ? "active" : stage.state === "completed" ? "run" : "idle"; }
+function relatedEvents(stage: Stage, events: TimelineEvent[]) {
+  const gate = stage.stage_id === "plan_approval" ? "plan" : stage.stage_id === "implementation_approval" ? "implementation" : null;
+  return events.filter((event) => gate ? event.gate === gate : event.event_type.includes(stage.stage_id)).slice(0, 3);
+}
+
+function graphFor(run: Run): { nodes: PositionedWorkflowNode[]; edges: WorkflowEdge[]; width: number; height: number } {
+  const graph = run.workflow_graph;
+  const sourceNodes: WorkflowNode[] = graph ? graph.nodes.map((node) => ({
+    id: node.stage_id, name: node.label, type: node.node_type, status: node.state, availability: node.availability,
+    artifactKind: node.artifact_kind, reason: node.reason, metric: node.artifact_kind ? String(run.artifacts.filter((artifact) => artifact.kind === node.artifact_kind).length) : "—"
+  })) : (run.stages ?? []).map((stage) => ({
+    id: stage.stage_id, name: stage.label, type: stage.stage_id.includes("approval") ? "gate" : stage.stage_id === "specification" ? "queue" : "agent", status: stage.state, availability: stage.availability,
+    artifactKind: stage.artifact_kind, reason: stage.reason, metric: stage.artifact_kind ? String(run.artifacts.filter((artifact) => artifact.kind === stage.artifact_kind).length) : "—"
+  }));
+  const edges: WorkflowEdge[] = graph ? graph.edges.map((edge) => ({
+    fromNodeId: edge.source_node_id, toNodeId: edge.target_node_id, style: edge.style, emphasis: edge.emphasis
+  })) : sourceNodes.slice(1).map((node, index) => ({ fromNodeId: sourceNodes[index].id, toNodeId: node.id, style: "solid", emphasis: "primary" }));
+  const incoming = new Map(sourceNodes.map((node) => [node.id, 0]));
+  const outgoing = new Map(sourceNodes.map((node) => [node.id, [] as string[]]));
+  edges.forEach((edge) => { incoming.set(edge.toNodeId, (incoming.get(edge.toNodeId) ?? 0) + 1); outgoing.get(edge.fromNodeId)?.push(edge.toNodeId); });
+  const rank = new Map<string, number>(); const queue = sourceNodes.filter((node) => incoming.get(node.id) === 0);
+  queue.forEach((node) => rank.set(node.id, 0));
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index]; const currentRank = rank.get(current.id) ?? 0;
+    for (const nextId of outgoing.get(current.id) ?? []) { rank.set(nextId, Math.max(rank.get(nextId) ?? 0, currentRank + 1)); incoming.set(nextId, (incoming.get(nextId) ?? 1) - 1); if (incoming.get(nextId) === 0) { const next = sourceNodes.find((node) => node.id === nextId); if (next) queue.push(next); } }
+  }
+  const layers = new Map<number, WorkflowNode[]>();
+  sourceNodes.forEach((node) => { const nodeRank = rank.get(node.id) ?? 0; layers.set(nodeRank, [...(layers.get(nodeRank) ?? []), node]); });
+  const maxLayerSize = Math.max(1, ...[...layers.values()].map((layer) => layer.length));
+  const height = Math.max(700, 140 + maxLayerSize * 190); const width = Math.max(1400, 160 + layers.size * 270);
+  const nodes = sourceNodes.map((node) => {
+    if (node.position) return { ...node, position: node.position };
+    const nodeRank = rank.get(node.id) ?? 0; const layer = layers.get(nodeRank) ?? [node]; const slot = layer.findIndex((item) => item.id === node.id);
+    const y = 70 + ((height - 140) / (layer.length + 1)) * (slot + 1) - 65;
+    return { ...node, position: { x: 40 + nodeRank * 270, y, width: 200 } };
+  });
+  return { nodes, edges, width, height };
+}
+function evidenceCaption(node: PositionedWorkflowNode) {
+  if (!node.artifactKind) return "no evidence";
+  return node.metric === "1" ? "verified artifact" : "verified artifacts";
+}
+
+function compactGeometry(node: PositionedWorkflowNode, graph: ReturnType<typeof graphFor>) {
+  return {
+    centerX: (node.position.x + node.position.width / 2) / graph.width * 100,
+    centerY: (node.position.y + 64) / graph.height * 100,
+    width: Math.max(17, node.position.width / graph.width * 100)
+  };
+}
+
+function compactEdgePath(source: ReturnType<typeof compactGeometry>, target: ReturnType<typeof compactGeometry>) {
+  const x1 = source.centerX + source.width / 2;
+  const x2 = target.centerX - target.width / 2;
+  const midpoint = (x1 + x2) / 2;
+  return `M ${x1} ${source.centerY} C ${midpoint} ${source.centerY}, ${midpoint} ${target.centerY}, ${x2} ${target.centerY}`;
+}
+
+function WorkflowMap({ run, timeline, onEvidence }: { run: Run; timeline: TimelineEvent[]; onEvidence: (kind: Artifact["kind"]) => void }) {
   const [zoom, setZoom] = useState(100);
-  const stages = run.workflow.length ? run.workflow : ["planning"];
-  const baseWidth = Math.max(1020, stages.length * 290 + 130);
-  const scale = zoom / 100;
-  return <section className="view workflow-view" aria-labelledby="workflow-title">
-    <div className="breadcrumb"><button onClick={onBack}>Mission Control</button><span>/</span><b>{run.run_id.slice(0, 8)}</b></div>
-    <header className="flow-header"><div><div className="title-line"><h1 id="workflow-title">Workflow relay</h1><Pill status={run.status} /></div><p className="mono">flow_{run.run_id.slice(0, 8)} <span /> Started {relativeTime(run.submitted_at)} <span /> {stages.length} projected nodes</p></div><div className="kpis"><Kpi label="Nodes" value={stages.length} /><Kpi label="Evidence" value={run.artifacts.length} /><Kpi label="Active gate" value={run.active_gate ?? "none"} /><Kpi label="Scope" value={run.project_id} /></div></header>
-    <div className="canvas-toolbar"><span>Projected path from authoritative run state</span><div><button aria-label="Zoom out" disabled={zoom === 50} onClick={() => setZoom((value) => Math.max(50, value - 10))}>−</button><span aria-live="polite">{zoom}%</span><button aria-label="Zoom in" disabled={zoom === 200} onClick={() => setZoom((value) => Math.min(200, value + 10))}>+</button><button aria-label="Fit graph" onClick={() => setZoom(100)}>⌗</button></div><span className="canvas-mode">Projected path</span></div>
-    <div className="canvas-scroll"><div className="canvas-zoom" data-zoom={zoom} style={{ width: `${baseWidth * scale}px`, minHeight: `${480 * scale}px` }}><div className="relay-canvas" style={{ "--count": stages.length, width: `${baseWidth}px`, transform: `scale(${scale})` } as React.CSSProperties}><div className="relay-line" />{stages.map((stage) => {
-      const active = isActiveStage(stage, run.active_gate);
-      const artifact = stageArtifact(run, stage);
-      return <button key={stage} className={`relay-node ${stageType(stage)} ${active ? "focused" : ""}`} onClick={() => onDossier(stage)}><span className="node-icon"><Icon name={stageType(stage) === "gate" ? "flow" : stageType(stage) === "queue" ? "database" : "node"} /></span><span className="node-copy"><b>{statusLabel(stage)}</b><small>{stageType(stage)}</small></span><i className={`node-status ${active ? "warn" : "idle"}`} /><span className="node-metric">{active ? "Awaiting operator decision" : artifact ? "Verified evidence available" : "Projected from run lifecycle"}</span></button>;
-    })}</div></div></div>
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
+  const stages = run.stages ?? [];
+  const selected = stages.find((stage) => stage.stage_id === selectedStageId) ?? stages.find((stage) => stage.state === "awaiting_operator") ?? stages[0] ?? null;
+  useEffect(() => { setSelectedStageId(null); setZoom(100); }, [run.run_id]);
+  return <section className="workflow-map" aria-labelledby="workflow-map-title"><div className="canvas-toolbar"><span id="workflow-map-title">Workflow topology · typed server state</span><div><button aria-label="Zoom out" disabled={zoom === 60} onClick={() => setZoom((value) => Math.max(60, value - 10))}>−</button><span aria-live="polite">{zoom}%</span><button aria-label="Zoom in" disabled={zoom === 160} onClick={() => setZoom((value) => Math.min(160, value + 10))}>+</button><button aria-label="Fit workflow map" onClick={() => setZoom(100)}>⌗</button></div><span className="canvas-mode">authoritative</span></div><div className="workflow-map-layout"><div className="canvas-scroll"><div className="map-scale" data-zoom={zoom} style={{ width: `${Math.max(880, stages.length * 220) * zoom / 100}px` }}><div className="workflow-map-canvas" style={{ "--count": stages.length, transform: `scale(${zoom / 100})` } as React.CSSProperties}><div className="workflow-map-line" />{stages.map((stage) => <button key={stage.stage_id} className={`workflow-node ${stageTone(stage)} ${selected?.stage_id === stage.stage_id ? "selected" : ""}`} onClick={() => setSelectedStageId(stage.stage_id)} aria-label={`${stage.label}: ${statusLabel(stage.state)}, ${stage.availability}`}><span className="workflow-node-marker" /><span><b>{stage.label}</b><small>{statusLabel(stage.state)}</small></span><Pill status={stage.state} label={stage.availability} /></button>)}</div></div></div>{selected && <aside className="workflow-stage-panel" aria-label={`${selected.label} details`}><p className="eyebrow">Selected stage</p><div className="title-line"><h2>{selected.label}</h2><Pill status={selected.state} /></div><p>{selected.reason}</p><dl><dt>State source</dt><dd>{selected.availability}</dd>{selected.artifact_kind && <><dt>Evidence</dt><dd><button className="text-button" onClick={() => onEvidence(selected.artifact_kind!)}>{selected.artifact_kind}</button></dd></>}</dl>{relatedEvents(selected, timeline).length > 0 && <div className="timeline"><p className="eyebrow">Related events</p>{relatedEvents(selected, timeline).map((event) => <div className="tl-item" key={event.event_id}><i /><span><b>{statusLabel(event.event_type)}</b><small>{new Date(event.occurred_at).toLocaleString()}</small></span></div>)}</div>}</aside>}</div></section>;
+}
+
+function LifecycleRail({ nodes, focusedNodeId, onFocus, onVisualize }: { nodes: PositionedWorkflowNode[]; focusedNodeId: string | null; onFocus: (node: PositionedWorkflowNode) => void; onVisualize: () => void }) {
+  return <section className="lifecycle-rail" aria-labelledby="lifecycle-rail-title">
+    <div className="lifecycle-rail-heading"><p id="lifecycle-rail-title">Lifecycle</p><small>Authoritative stage projection</small></div>
+    <div className="lifecycle-rail-scroll"><ol>{nodes.map((node, index) => <li key={node.id} className={statusTone(node.status)}><button aria-label={`Focus ${node.name}`} aria-pressed={focusedNodeId === node.id} onClick={() => onFocus(node)}><span className="lifecycle-step">{index + 1}</span><span className="lifecycle-copy"><b>{node.name}</b><small>{statusLabel(node.status)}</small></span><i className="lifecycle-dot" /></button>{index < nodes.length - 1 && <span className="lifecycle-link" aria-hidden="true" />}</li>)}</ol></div>
+    <button className="topology-mode-button" onClick={onVisualize} aria-label="Visualize workflow topology">Visualize</button>
   </section>;
 }
 
-function Dossier({ client, run, stage, onBack, onRefresh, decisionNotice, onDecisionComplete }: { client: ApiClient; run: Run; stage: string; onBack: () => void; onRefresh: () => Promise<void>; decisionNotice: string | null; onDecisionComplete: () => void }) {
-  const [artifact, setArtifact] = useState<Artifact | null>(null);
-  const [evidence, setEvidence] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
-  const selectedArtifact = stageArtifact(run, stage);
-  useEffect(() => { setArtifact(null); setEvidence(""); setError(null); }, [run.run_id, stage]);
-  async function openEvidence(next: Artifact) { setArtifact(next); setError(null); try { setEvidence((await client.getEvidence(run.run_id, next)).content); } catch (reason) { setError(reason instanceof Error ? reason.message : "Evidence is unavailable."); } }
-  return <section className="view dossier-view" aria-labelledby="dossier-title">
-    <div className="breadcrumb"><button onClick={onBack}>Workflow relay</button><span>/</span><b>{statusLabel(stage)}</b></div>
-    <header className="dossier-head"><div><h1 id="dossier-title" className="dossier-title">{statusLabel(stage)}</h1><div className="dossier-meta"><span>projected node</span><span>{stageType(stage)}</span><Pill status={isActiveStage(stage, run.active_gate) ? "awaiting" : "idle"} label={isActiveStage(stage, run.active_gate) ? "awaiting decision" : "projected"} /></div></div><div className="d-kpis"><Kpi label="Run state" value={statusLabel(run.status)} /><Kpi label="Gate" value={run.active_gate ?? "—"} /></div></header>
-    <div className="dossier-content">{decisionNotice && <p className="sync-row" role="status">{decisionNotice}</p>}<div className="dossier-grid"><section className="card dossier-summary"><p className="eyebrow">Authoritative run context</p><p className="dossier-description">This is a projected workflow node. Its own lifecycle is shown only when Cogito persists it; the run state remains {statusLabel(run.status)}.</p><div className="dossier-details"><div><span>Project</span><b>{run.project_id}</b></div><div><span>Run state</span><b>{statusLabel(run.status)}</b></div><div><span>Active gate</span><b>{run.active_gate ?? "None"}</b></div><div><span>Submitted</span><b>{new Date(run.submitted_at).toLocaleString()}</b></div></div></section><section className="card dossier-events"><h2 className="panel-title">Verified evidence</h2><div className="timeline">{selectedArtifact ? <button className={`tl-item evidence-event ${artifact?.kind === selectedArtifact.kind ? "selected" : ""}`} onClick={() => void openEvidence(selectedArtifact)}><i /><span><b>{selectedArtifact.kind} evidence</b><small>{selectedArtifact.sha256.slice(0, 12)}</small></span></button> : <p className="control-note">No immutable evidence is associated with this projected node.</p>}</div>{error && <p className="evidence-error" role="alert">{error}</p>}{evidence && <pre aria-label="Verified evidence">{evidence}</pre>}</section></div><div className="dossier-grid workbench-facts"><section className="card"><h2 className="panel-title">Execution summary</h2>{run.execution ? <dl><dt>Phases</dt><dd>{run.execution.succeeded_phase_count} passed / {run.execution.failed_phase_count} failed / {run.execution.phase_count} recorded</dd><dt>Verification</dt><dd>{run.execution.verification_passed} passed / {run.execution.verification_failed} failed</dd><dt>Review</dt><dd>{run.execution.review_status ?? "Unavailable"}</dd><dt>Validation</dt><dd>{run.execution.validation_status ?? "Unavailable"}</dd></dl> : <p className="control-note">Execution facts are unavailable until a verified implementation artifact is recorded.</p>}<dl><dt>Cost limit</dt><dd>${run.budget.max_cost_usd.toFixed(2)}</dd><dt>Actual cost</dt><dd>{run.budget.actual_cost_usd === null ? "Unavailable" : `$${run.budget.actual_cost_usd.toFixed(2)}`}</dd><dt>Turns used</dt><dd>{run.budget.turns_used ?? "Unavailable"}</dd></dl></section><section className="card"><h2 className="panel-title">Approval history</h2>{run.approval_history_available ? run.approval_history.length ? <div className="timeline">{run.approval_history.map((approval) => <div className="tl-item" key={approval.decision_id}><i /><span><b>{approval.gate} {approval.decision}</b><small>{approval.actor_id} · {new Date(approval.created_at).toLocaleString()} · {approval.delivered ? "delivered" : "pending delivery"}</small></span></div>)}</div> : <p className="control-note">No operator decisions have been recorded.</p> : <p className="control-note">Approval history is available to approvers.</p>}{run.external_links.length > 0 && <div className="external-links">{run.external_links.map((link) => <a key={`${link.kind}:${link.url}`} href={link.url} target="_blank" rel="noopener noreferrer">{link.label}</a>)}</div>}</section></div>{run.active_gate && <DecisionControls client={client} run={run} onComplete={onRefresh} onSuccess={onDecisionComplete} />}</div>
+function CompactTopology({ graph, focusedNodeId, onFocus, onLifecycle }: { graph: ReturnType<typeof graphFor>; focusedNodeId: string | null; onFocus: (node: PositionedWorkflowNode) => void; onLifecycle: () => void }) {
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const geometries = new Map(graph.nodes.map((node) => [node.id, compactGeometry(node, graph)]));
+  return <section className="compact-topology" aria-labelledby="compact-topology-title"><header><div><p id="compact-topology-title">Workflow topology</p><small>Compact relay overview · authoritative graph</small></div><button className="topology-mode-button" onClick={onLifecycle}>Lifecycle</button></header><div className="compact-topology-viewport"><div className="compact-topology-canvas"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">{graph.edges.map((edge) => { const source = nodesById.get(edge.fromNodeId); const target = nodesById.get(edge.toNodeId); const sourceGeometry = geometries.get(edge.fromNodeId); const targetGeometry = geometries.get(edge.toNodeId); return source && target && sourceGeometry && targetGeometry ? <path key={`${edge.fromNodeId}-${edge.toNodeId}`} d={compactEdgePath(sourceGeometry, targetGeometry)} className={edge.emphasis} strokeDasharray={edge.style === "dashed" ? ".6 .6" : undefined} /> : null; })}</svg>{graph.nodes.map((node) => { const geometry = geometries.get(node.id)!; return <button key={node.id} className={`${node.type} ${statusTone(node.status)} ${focusedNodeId === node.id ? "selected" : ""}`} style={{ left: `${geometry.centerX}%`, top: `${geometry.centerY}%`, width: `${geometry.width}%` }} aria-label={`Select ${node.name}`} aria-pressed={focusedNodeId === node.id} onClick={() => onFocus(node)}><span className="compact-node-icon">{node.type === "agent" ? "✦" : node.type === "gate" ? "◇" : "▤"}</span><span className="compact-node-copy"><b>{node.name}</b><small>{node.type}</small></span><i className="compact-node-status" /><span className="compact-node-metric"><b>{node.metric}</b><small>{evidenceCaption(node)}</small></span></button>; })}</div></div></section>;
+}
+
+function StageInspector({ node, incoming, outgoing, collapsed, onToggle }: { node: PositionedWorkflowNode; incoming: number; outgoing: number; collapsed: boolean; onToggle: () => void }) {
+  return <section className={`stage-inspector ${statusTone(node.status)} ${collapsed ? "collapsed" : ""}`} aria-label="Selected stage details">
+    <div className="stage-inspector-title"><span className="stage-inspector-marker" /><div><p className="eyebrow">Selected stage</p><div className="title-line"><h2>{node.name}</h2><Pill status={node.status} /></div>{!collapsed && <p>{node.reason}</p>}</div><button className="stage-inspector-collapse" aria-label={collapsed ? "Expand stage details" : "Collapse stage details"} aria-expanded={!collapsed} onClick={onToggle}>{collapsed ? "⌄" : "⌃"}</button></div>
+    {!collapsed && <dl className="stage-inspector-facts"><div><dt>State source</dt><dd>{node.availability}</dd></div><div><dt>Node role</dt><dd>{node.type}</dd></div><div><dt>Evidence</dt><dd>{node.artifactKind ? `${node.artifactKind} artifact` : "Unavailable"}</dd></div><div><dt>Dependencies</dt><dd>{incoming} upstream · {outgoing} downstream</dd></div></dl>}
   </section>;
 }
 
-function readStoredTheme(): Theme {
-  try { const value = window.localStorage.getItem("cogito-workbench-theme"); return value === "light" || value === "dark" || value === "system" ? value : "system"; } catch { return "system"; }
+function EmbeddedStageDossier({ client, run, node, edges, timeline, tab, setTab, onRefresh, decisionNotice, onDecisionComplete }: { client: ApiClient; run: Run; node: PositionedWorkflowNode; edges: WorkflowEdge[]; timeline: TimelineEvent[]; tab: NodeDossierTab; setTab: (tab: NodeDossierTab) => void; onRefresh: () => Promise<void>; decisionNotice: string | null; onDecisionComplete: () => void }) {
+  const tabs: Array<{ id: NodeDossierTab; label: string }> = [{ id: "overview", label: "Overview" }, { id: "execution-log", label: "Execution log" }, { id: "configuration", label: "Configuration" }, { id: "dependencies", label: "Dependencies" }, { id: "history", label: "History" }];
+  const graph = graphFor(run);
+  const relatedIds = edges.filter((edge) => edge.fromNodeId === node.id || edge.toNodeId === node.id).flatMap((edge) => [edge.fromNodeId, edge.toNodeId]).filter((id) => id !== node.id);
+  const dependencies = graph.nodes.filter((item) => relatedIds.includes(item.id));
+  const events = relatedEvents({ stage_id: node.id, label: node.name, state: node.status as Stage["state"], availability: node.availability, reason: node.reason, artifact_kind: node.artifactKind }, timeline);
+  return <section className="embedded-dossier" aria-labelledby="embedded-dossier-title"><header><div><p className="eyebrow">Selected-stage dossier</p><h2 id="embedded-dossier-title">{node.name}</h2></div></header><div className="subtabs" role="tablist" aria-label="Selected-stage dossier views">{tabs.map((item) => <button key={item.id} className="subtab" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)}>{item.label}</button>)}</div><div className="embedded-dossier-content">{decisionNotice && <p className="sync-row" role="status">{decisionNotice}</p>}{tab === "overview" && <div className="dossier-grid"><section className="card dossier-summary"><p className="eyebrow">Authoritative node context</p><p className="dossier-description">{node.reason}</p><div className="dossier-details"><div><span>Node type</span><b>{node.type}</b></div><div><span>State source</span><b>{node.availability}</b></div><div><span>Evidence</span><b>{node.artifactKind ?? "Unavailable"}</b></div><div><span>Workflow scope</span><b>{run.project_id}</b></div></div></section><section className="card dossier-events"><h3 className="panel-title">Recent events</h3>{events.length ? <div className="timeline">{events.map((event) => <div className="tl-item" key={event.event_id}><i /><span><b>{statusLabel(event.event_type)}</b><small>{new Date(event.occurred_at).toLocaleString()}</small></span></div>)}</div> : <p className="control-note">No persisted events are attributable to this node.</p>}</section>{node.id === `${run.active_gate}_approval` && <DecisionControls client={client} run={run} onComplete={onRefresh} onSuccess={onDecisionComplete} />}</div>}{tab === "execution-log" && <section className="card log-card"><h3 className="panel-title">Execution log</h3>{events.length ? events.map((event) => <p key={event.event_id}><span>{new Date(event.occurred_at).toLocaleTimeString()}</span> <b>[{event.gate ?? node.type}]</b> {statusLabel(event.event_type)}</p>) : <p className="control-note">No execution log is available for this node.</p>}</section>}{tab === "configuration" && <section className="card"><h3 className="panel-title">Configuration availability</h3><p className="control-note">No persisted node configuration is available. This bounded display context is authoritative.</p><pre className="codeblock" aria-label="Authoritative node display context">{JSON.stringify({ node_id: node.id, type: node.type, state_source: node.availability, evidence_kind: node.artifactKind }, null, 2)}</pre></section>}{tab === "dependencies" && <section className="dependency-list">{dependencies.length ? dependencies.map((dependency) => <div key={dependency.id}><span><b>{dependency.name}</b><small>{dependency.type}</small></span><Pill status={dependency.status} /></div>) : <p className="control-note">This node has no persisted graph dependencies.</p>}</section>}{tab === "history" && <section className="card"><h3 className="panel-title">Persisted lifecycle history</h3>{events.length ? <div className="timeline">{events.map((event) => <div className="tl-item" key={event.event_id}><i /><span><b>{statusLabel(event.event_type)}</b><small>{new Date(event.occurred_at).toLocaleString()} · {event.delivered ? "delivered" : "pending delivery"}</small></span></div>)}</div> : <p className="control-note">No persisted lifecycle history is available for this node.</p>}</section>}</div></section>;
+}
+
+function WorkflowCanvas({ client, run, timeline, onBack, onRefresh, decisionNotice, onDecisionComplete }: { client: ApiClient; run: Run; timeline: TimelineEvent[]; onBack: () => void; onRefresh: () => Promise<void>; decisionNotice: string | null; onDecisionComplete: () => void }) {
+  const [visualizing, setVisualizing] = useState(false);
+  const [dossierTab, setDossierTab] = useState<NodeDossierTab>("overview");
+  const graph = graphFor(run);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(() => graph.nodes.find((node) => node.id === `${run.active_gate}_approval`)?.id ?? graph.nodes.find((node) => node.status === "in_progress")?.id ?? graph.nodes[0]?.id ?? null);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  useEffect(() => { setVisualizing(false); setDossierTab("overview"); setInspectorCollapsed(false); setFocusedNodeId(graph.nodes.find((node) => node.id === `${run.active_gate}_approval`)?.id ?? graph.nodes.find((node) => node.status === "in_progress")?.id ?? graph.nodes[0]?.id ?? null); }, [run.run_id]);
+  const focusNode = (node: PositionedWorkflowNode) => {
+    setFocusedNodeId(node.id);
+    setDossierTab("overview");
+  };
+  const focusedNode = graph.nodes.find((node) => node.id === focusedNodeId) ?? graph.nodes[0] ?? null;
+  const focusedIncoming = focusedNode ? graph.edges.filter((edge) => edge.toNodeId === focusedNode.id).length : 0;
+  const focusedOutgoing = focusedNode ? graph.edges.filter((edge) => edge.fromNodeId === focusedNode.id).length : 0;
+  return <section className="view relay-grid-view" aria-labelledby="workflow-title">
+    <div className="breadcrumb"><button onClick={onBack}>Mission Control</button><span>/</span><b>{run.workflow_id ?? run.run_id}</b></div>
+    <header className="dossier-head relay-head"><div><div className="title-line"><h1 id="workflow-title" className="dossier-title">{run.workflow_id ?? "Planning run"}</h1><Pill status={run.status} /></div><p className="mono">Flow ID {run.run_id} · started {new Date(run.submitted_at).toLocaleString()}</p></div><div className="d-kpis"><Kpi label="Evidence" value={run.artifacts.length} /><Kpi label="Stages" value={graph.nodes.length} /><Kpi label="Gate" value={run.active_gate ?? "none"} /><Kpi label="Scope" value={run.project_id} /></div></header>
+    {graph.nodes.length === 0 ? <section className="lifecycle-unavailable" role="status">No authoritative lifecycle graph is available for this run yet.</section> : visualizing ? <CompactTopology graph={graph} focusedNodeId={focusedNodeId} onFocus={focusNode} onLifecycle={() => setVisualizing(false)} /> : <LifecycleRail nodes={graph.nodes} focusedNodeId={focusedNodeId} onFocus={focusNode} onVisualize={() => setVisualizing(true)} />}
+    {focusedNode && <StageInspector node={focusedNode} incoming={focusedIncoming} outgoing={focusedOutgoing} collapsed={inspectorCollapsed} onToggle={() => setInspectorCollapsed((value) => !value)} />}
+    {focusedNode && <EmbeddedStageDossier client={client} run={run} node={focusedNode} edges={graph.edges} timeline={timeline} tab={dossierTab} setTab={setDossierTab} onRefresh={onRefresh} decisionNotice={decisionNotice} onDecisionComplete={onDecisionComplete} />}
+  </section>;
+}
+
+function NodeDossier({ client, run, node, edges, timeline, tab, setTab, onBack, onCanvas, onRefresh, decisionNotice, onDecisionComplete }: { client: ApiClient; run: Run; node: PositionedWorkflowNode; edges: WorkflowEdge[]; timeline: TimelineEvent[]; tab: NodeDossierTab; setTab: (tab: NodeDossierTab) => void; onBack: () => void; onCanvas: () => void; onRefresh: () => Promise<void>; decisionNotice: string | null; onDecisionComplete: () => void }) {
+  const tabs: Array<{ id: NodeDossierTab; label: string }> = [{ id: "overview", label: "Overview" }, { id: "execution-log", label: "Execution log" }, { id: "configuration", label: "Configuration" }, { id: "dependencies", label: "Dependencies" }, { id: "history", label: "History" }];
+  const graph = graphFor(run); const connectedIds = edges.filter((edge) => edge.fromNodeId === node.id || edge.toNodeId === node.id).flatMap((edge) => [edge.fromNodeId, edge.toNodeId]).filter((id) => id !== node.id); const dependencies = graph.nodes.filter((item) => connectedIds.includes(item.id));
+  const events = relatedEvents({ stage_id: node.id, label: node.name, state: node.status as Stage["state"], availability: node.availability, reason: node.reason, artifact_kind: node.artifactKind }, timeline);
+  return <section className="view dossier-view relay-dossier" aria-labelledby="node-title"><div className="breadcrumb"><button onClick={onBack}>Mission Control</button><span>/</span><button onClick={onCanvas}>{run.workflow_id ?? run.run_id}</button><span>/</span><b>{node.name}</b></div><header className="dossier-head"><div><div className="title-line"><h1 id="node-title" className="dossier-title">{node.name}</h1><Pill status={node.status} /></div><p className="mono">{node.id} · {node.type} · {node.availability}</p></div><div className="d-kpis"><Kpi label="Evidence" value={node.artifactKind ? 1 : "—"} /><Kpi label="State" value={statusLabel(node.status)} /><Kpi label="Links" value={dependencies.length} /></div></header><div className="subtabs" role="tablist" aria-label="Node dossier views">{tabs.map((item) => <button key={item.id} className="subtab" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)}>{item.label}</button>)}</div><div className="dossier-content">{decisionNotice && <p className="sync-row" role="status">{decisionNotice}</p>}{tab === "overview" && <><div className="dossier-grid"><section className="card dossier-summary"><p className="eyebrow">Authoritative node context</p><p className="dossier-description">{node.reason}</p><div className="dossier-details"><div><span>Node type</span><b>{node.type}</b></div><div><span>State source</span><b>{node.availability}</b></div><div><span>Evidence</span><b>{node.artifactKind ?? "Unavailable"}</b></div><div><span>Workflow scope</span><b>{run.project_id}</b></div></div></section><section className="card dossier-events"><h2 className="panel-title">Recent events</h2>{events.length ? <div className="timeline">{events.map((event) => <div className="tl-item" key={event.event_id}><i /><span><b>{statusLabel(event.event_type)}</b><small>{new Date(event.occurred_at).toLocaleString()}</small></span></div>)}</div> : <p className="control-note">No persisted events are attributable to this node.</p>}</section></div>{node.id === `${run.active_gate}_approval` && <DecisionControls client={client} run={run} onComplete={onRefresh} onSuccess={onDecisionComplete} />}</>}{tab === "execution-log" && <section className="card log-card"><h2 className="panel-title">Execution log</h2>{events.length ? events.map((event) => <p key={event.event_id}><span>{new Date(event.occurred_at).toLocaleTimeString()}</span> <b>[{event.gate ?? node.type}]</b> {statusLabel(event.event_type)}</p>) : <p className="control-note">No execution log is available for this node.</p>}</section>}{tab === "configuration" && <section className="card"><h2 className="panel-title">Configuration</h2><pre className="codeblock" aria-label="Node configuration">{JSON.stringify({ node_id: node.id, type: node.type, state_source: node.availability, evidence_kind: node.artifactKind }, null, 2)}</pre></section>}{tab === "dependencies" && <section className="dependency-list">{dependencies.length ? dependencies.map((dependency) => <div key={dependency.id}><span><b>{dependency.name}</b><small>{dependency.type}</small></span><Pill status={dependency.status} /></div>) : <p className="control-note">This node has no persisted graph dependencies.</p>}</section>}{tab === "history" && <section className="card"><h2 className="panel-title">History</h2>{events.length ? <div className="timeline">{events.map((event) => <div className="tl-item" key={event.event_id}><i /><span><b>{statusLabel(event.event_type)}</b><small>{new Date(event.occurred_at).toLocaleString()} · {event.delivered ? "delivered" : "pending delivery"}</small></span></div>)}</div> : <p className="control-note">No persisted history is available for this node.</p>}</section>}</div></section>;
+}
+
+function UnavailableRun({ onBack, entity = "Run" }: { onBack: () => void; entity?: "Run" | "Node" }) { const isNode = entity === "Node"; return <section className="view mission-view" aria-labelledby="run-unavailable-title"><header className="flow-header"><div><h1 id="run-unavailable-title">{entity} unavailable</h1><p>{isNode ? "This node is not available in the current authoritative workflow graph." : "This run is unavailable or outside your authorized project scope."}</p></div></header><button className="refresh-button" onClick={onBack}>{isNode ? "Return to Workflow Canvas" : "Return to Mission Control"}</button></section>; }
+
+function Detail({ client, run, tab, setTab, timeline, timelineMessage, onBack, onRefresh, decisionNotice, onDecisionComplete }: { client: ApiClient; run: Run; tab: DetailTab; setTab: (tab: DetailTab) => void; timeline: TimelineEvent[]; timelineMessage: string; onBack: () => void; onRefresh: () => Promise<void>; decisionNotice: string | null; onDecisionComplete: () => void }) {
+  const openEvidence = (kind: Artifact["kind"]) => setTab(kind === "plan" ? "plan" : "artifacts");
+  return <section className="view dossier-view" aria-labelledby="run-title"><div className="breadcrumb"><button onClick={onBack}>Mission Control</button><span>/</span><b>{run.run_id}</b></div><header className="dossier-head"><div><div className="title-line"><h1 id="run-title" className="dossier-title">Run detail</h1><Pill status={run.status} /></div><p className="mono">{run.workflow_id ?? "Workflow identity unavailable"} · submitted {new Date(run.submitted_at).toLocaleString()}</p></div><div className="d-kpis"><Kpi label="Gate" value={run.active_gate ?? "none"} /><Kpi label="Scope" value={run.project_id} /></div></header><div className="tabs" role="tablist" aria-label="Run detail views">{tabs.map((item) => <button key={item.id} role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)}>{item.label}</button>)}</div><div className="dossier-content">{decisionNotice && <p className="sync-row" role="status">{decisionNotice}</p>}{tab === "summary" && <div className="dossier-grid"><section className="card dossier-summary"><p className="eyebrow">Authoritative run context</p><div className="dossier-details"><div><span>Run status</span><b>{statusLabel(run.status)}</b></div><div><span>Workflow identity</span><b className="mono">{run.workflow_id ?? "Not available"}</b></div><div><span>Active gate</span><b>{run.active_gate ?? "None"}</b></div><div><span>Artifacts</span><b>{run.artifacts.length} verified</b></div></div></section><section className="card"><h2 className="panel-title">Available views</h2><div className="timeline">{run.artifacts.map((artifact) => <button className="tl-item evidence-event" key={artifact.kind} onClick={() => openEvidence(artifact.kind)}><i /><span><b>{artifact.kind} evidence</b><small>{artifact.sha256.slice(0, 12)}</small></span></button>)}</div></section></div>}{tab === "workflow" && <WorkflowMap run={run} timeline={timeline} onEvidence={openEvidence} />}{tab === "timeline" && <><p className="sync-row" role="status">{timelineMessage}</p><Timeline events={timeline} /></>}{tab === "artifacts" && <EvidenceViewer client={client} run={run} />}{tab === "plan" && <EvidenceViewer client={client} run={run} initial="plan" />}{tab === "execution" && <section className="card"><h2 className="panel-title">Execution summary</h2>{run.execution ? <dl><dt>Phases</dt><dd>{run.execution.succeeded_phase_count} passed / {run.execution.failed_phase_count} failed / {run.execution.phase_count} recorded</dd><dt>Verification</dt><dd>{run.execution.verification_passed} passed / {run.execution.verification_failed} failed</dd><dt>Actual cost</dt><dd>{run.budget.actual_cost_usd === null ? "Unavailable" : `$${run.budget.actual_cost_usd.toFixed(2)}`}</dd><dt>Turns used</dt><dd>{run.budget.turns_used ?? "Unavailable"}</dd></dl> : <p className="control-note">Execution facts are unavailable until verified implementation evidence is recorded.</p>}</section>}{tab === "review" && <section className="card"><h2 className="panel-title">Review and validation</h2>{run.execution ? <dl><dt>Review</dt><dd>{run.execution.review_status ?? "Unavailable"}</dd><dt>Validation</dt><dd>{run.execution.validation_status ?? "Unavailable"}</dd></dl> : <p className="control-note">Classified review and validation facts are unavailable.</p>}</section>}{tab === "approvals" && <><section className="card"><h2 className="panel-title">Immutable approval history</h2>{run.approval_history_available ? run.approval_history.length ? <div className="timeline">{run.approval_history.map((approval) => <div className="tl-item" key={approval.decision_id}><i /><span><b>{approval.gate} {approval.decision}</b><small>{approval.actor_id} · {new Date(approval.created_at).toLocaleString()} · {approval.artifact_sha256.slice(0, 12)}</small></span><Pill status={approval.delivered ? "delivered" : "pending"} /></div>)}</div> : <p className="control-note">No operator decisions have been recorded.</p> : <p className="control-note">Approval history is available only to approvers.</p>}{run.external_links.length > 0 && <div className="external-links">{run.external_links.map((link) => <a key={`${link.kind}:${link.url}`} href={link.url} target="_blank" rel="noopener noreferrer">{link.label}</a>)}</div>}</section>{run.active_gate && <DecisionControls client={client} run={run} onComplete={onRefresh} onSuccess={onDecisionComplete} />}</>}</div></section>;
+}
+
+function routeFor(run: Run, tab: DetailTab) { return `/runs/${encodeURIComponent(run.run_id)}/${tab}`; }
+function canvasRoute(run: Run) { return `/workflows/${encodeURIComponent(run.run_id)}`; }
+function nodeRoute(run: Run, nodeId: string, tab: NodeDossierTab) { return `/workflows/${encodeURIComponent(run.run_id)}/nodes/${encodeURIComponent(nodeId)}/${tab}`; }
+function readRoute(): { runId: string | null; tab: DetailTab; nodeId: string | null; nodeTab: NodeDossierTab; view: WorkflowView } {
+  const node = window.location.pathname.match(/^\/workflows\/([^/]+)\/nodes\/([^/]+)\/(overview|execution-log|configuration|dependencies|history)$/);
+  if (node) return { runId: decodeURIComponent(node[1]), nodeId: decodeURIComponent(node[2]), nodeTab: node[3] as NodeDossierTab, tab: "summary", view: "node" };
+  const canvas = window.location.pathname.match(/^\/workflows\/([^/]+)$/);
+  if (canvas) return { runId: decodeURIComponent(canvas[1]), nodeId: null, nodeTab: "overview", tab: "summary", view: "canvas" };
+  const legacy = window.location.pathname.match(/^\/runs\/([^/]+)\/(summary|workflow|timeline|artifacts|plan|execution|review|approvals)$/);
+  return { runId: legacy ? decodeURIComponent(legacy[1]) : null, nodeId: null, nodeTab: "overview", tab: (legacy?.[2] as DetailTab | undefined) ?? "summary", view: legacy ? "legacy" : "mission" };
 }
 
 export function App({ client = apiClient }: { client?: ApiClient }) {
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [projectsLoaded, setProjectsLoaded] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<string>();
-  const [selected, setSelected] = useState<Run | null>(null);
-  const [view, setView] = useState<View>("mission");
-  const [stage, setStage] = useState("planning");
-  const [error, setError] = useState<string | null>(null);
-  const [syncMessage, setSyncMessage] = useState("Authoritative state has not been refreshed yet.");
-  const [refreshing, setRefreshing] = useState(false);
-  const [health, setHealth] = useState<Health>("checking");
-  const [pollDelay, setPollDelay] = useState(15_000);
-  const [collapsed, setCollapsed] = useState(false);
-  const [dialog, setDialog] = useState<ShellDialog>(null);
-  const [theme, setTheme] = useState<Theme>(readStoredTheme);
-  const [detailRevision, setDetailRevision] = useState(0);
-  const [decisionNotice, setDecisionNotice] = useState<string | null>(null);
-  const refreshGeneration = useRef(0);
-  const activeRequest = useRef<AbortController | null>(null);
-  const etags = useRef(new Map<string, string>());
-
-  const refresh = useCallback(async () => {
-    if (!projectsLoaded) {
-      setSyncMessage("Project inventory is unavailable; no run request was sent.");
-      return;
-    }
-    const generation = ++refreshGeneration.current;
-    activeRequest.current?.abort();
-    const controller = new AbortController();
-    activeRequest.current = controller;
-    const etagKey = selectedProject ?? "*";
-    setRefreshing(true);
-    setSyncMessage("Refreshing authoritative state…");
-    try {
-      const result = await client.listRuns({ projectId: selectedProject, etag: etags.current.get(etagKey), signal: controller.signal });
-      if (generation !== refreshGeneration.current) return;
-      if (!result.unchanged) {
-        setRuns(result.runs);
-        setSelected((current) => result.runs.find((item) => item.run_id === current?.run_id) ?? result.runs[0] ?? null);
-        if (result.runs.length === 0) {
-          setStage("planning");
-          setView("mission");
-        }
-        setSyncMessage(`Authoritative state updated at ${new Date().toLocaleTimeString()}.`);
-      } else {
-        setSyncMessage(`Authoritative state unchanged at ${new Date().toLocaleTimeString()}.`);
-      }
-      if (result.etag) etags.current.set(etagKey, result.etag);
-      setError(null);
-      setHealth("connected");
-      setPollDelay(15_000);
-    } catch (reason) {
-      if (reason instanceof DOMException && reason.name === "AbortError") return;
-      if (generation === refreshGeneration.current) {
-        setError(reason instanceof Error ? reason.message : "Mission Control is temporarily unavailable.");
-        setSyncMessage("Authoritative state refresh failed; showing the last known inventory.");
-        setHealth("unavailable");
-        setPollDelay((delay) => Math.min(delay * 2, 120_000));
-      }
-    } finally {
-      if (generation === refreshGeneration.current) setRefreshing(false);
-      if (activeRequest.current === controller) activeRequest.current = null;
-    }
-  }, [client, projectsLoaded, selectedProject]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let cancelled = false;
-    void client.listProjects(controller.signal).then((items) => {
-      if (cancelled) return;
-      setProjects(items);
-      setSelectedProject((current) => current && items.some((item) => item.project_id === current) ? current : items.length === 1 ? items[0].project_id : undefined);
-      setProjectsLoaded(true);
-    }).catch(() => {
-      if (!cancelled) {
-        setError("Unable to load authorized project inventory.");
-        setHealth("unavailable");
-      }
-    });
-    void client.getHealth(controller.signal).then((ok) => setHealth(ok ? "connected" : "unavailable")).catch(() => setHealth("unavailable"));
-    return () => { cancelled = true; controller.abort(); };
-  }, [client]);
-  useEffect(() => { if (projectsLoaded && view === "mission") void refresh(); }, [projectsLoaded, refresh, view]);
-  useEffect(() => {
-    if (!projectsLoaded || view !== "mission") return;
-    const interval = window.setInterval(() => void refresh(), pollDelay);
-    return () => window.clearInterval(interval);
-  }, [pollDelay, projectsLoaded, refresh, view]);
-  useEffect(() => () => activeRequest.current?.abort(), []);
-  useEffect(() => { try { window.localStorage.setItem("cogito-workbench-theme", theme); } catch { /* Storage denial only affects preference persistence. */ } }, [theme]);
-  useEffect(() => {
-    if (!selected || view === "mission") return;
-    const controller = new AbortController();
-    let cancelled = false;
-    void client.getRun(selected.run_id, controller.signal).then((detail) => {
-      if (!cancelled) setSelected((current) => current?.run_id === detail.run_id ? detail : current);
-    }).catch((reason) => {
-      if (!cancelled && !(reason instanceof DOMException && reason.name === "AbortError")) {
-        setError("Unable to load the latest scoped workflow detail; showing the last known summary.");
-      }
-    });
-    return () => { cancelled = true; controller.abort(); };
-  }, [client, detailRevision, selected?.run_id, view]);
-
-  const selectedRun = selected ?? runs[0] ?? null;
-  const openWorkflow = (run = selectedRun) => { if (run) { setDecisionNotice(null); setSelected(run); setStage(run.workflow[0] ?? "planning"); setView("workflow"); } };
-  const content = useMemo(() => {
-    if (view === "workflow" && selectedRun) return <WorkflowCanvas run={selectedRun} onBack={() => setView("mission")} onDossier={(nextStage) => { setStage(nextStage); setView("dossier"); }} />;
-    if (view === "dossier" && selectedRun) return <Dossier client={client} run={selectedRun} stage={stage} onBack={() => setView("workflow")} onRefresh={refresh} decisionNotice={decisionNotice} onDecisionComplete={() => { setDecisionNotice("Decision accepted; the authoritative state has been refreshed."); setDetailRevision((value) => value + 1); }} />;
-    return <MissionControl runs={runs} onSelect={openWorkflow} refresh={refresh} syncMessage={syncMessage} refreshing={refreshing} />;
-  }, [client, decisionNotice, refresh, refreshing, runs, selectedRun, stage, syncMessage, view]);
-  return <main className="app-shell" data-theme={theme}><Sidebar projects={projects} selectedProject={selectedProject} onProjectChange={setSelectedProject} selected={selectedRun} activeView={view} onMission={() => setView("mission")} onWorkflow={() => openWorkflow()} onDossier={() => selectedRun && setView("dossier")} health={health} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((value) => !value)} onDialog={setDialog} /><div className="main-content">{error && <p className="app-error" role="alert">{error}</p>}{content}</div><ShellDialog dialog={dialog} onClose={() => setDialog(null)} theme={theme} setTheme={setTheme} selected={selectedRun} /></main>;
+  const initialRoute = readRoute();
+  const [runs, setRuns] = useState<Run[]>([]); const [projects, setProjects] = useState<Project[]>([]); const [projectsLoaded, setProjectsLoaded] = useState(false); const [selectedProject, setSelectedProject] = useState<string>();
+  const [selected, setSelected] = useState<Run | null>(null); const [tab, setTabState] = useState<DetailTab>(initialRoute.tab); const [routeRunId, setRouteRunId] = useState<string | null>(initialRoute.runId); const [routeView, setRouteView] = useState<WorkflowView>(initialRoute.view); const [nodeId, setNodeId] = useState<string | null>(initialRoute.nodeId); const [nodeTab, setNodeTab] = useState<NodeDossierTab>(initialRoute.nodeTab); const [routeUnavailable, setRouteUnavailable] = useState(false); const [timeline, setTimeline] = useState<TimelineEvent[]>([]); const [timelineRunId, setTimelineRunId] = useState<string | null>(null); const [timelineMessage, setTimelineMessage] = useState("Timeline has not been refreshed yet.");
+  const [error, setError] = useState<string | null>(null); const [syncMessage, setSyncMessage] = useState("Authoritative state has not been refreshed yet."); const [refreshing, setRefreshing] = useState(false); const [health, setHealth] = useState<Health>("checking"); const [theme, setTheme] = useState<Theme>(readStoredTheme); const [decisionNotice, setDecisionNotice] = useState<string | null>(null);
+  const generation = useRef(0); const request = useRef<AbortController | null>(null); const routeRunIdRef = useRef<string | null>(initialRoute.runId); const listEtags = useRef(new Map<string, string>()); const timelineEtags = useRef(new Map<string, string>()); const timelineCache = useRef(new Map<string, TimelineEvent[]>()); const timelineGeneration = useRef(0);
+  const refresh = useCallback(async () => { if (!projectsLoaded) { setSyncMessage("Project inventory is unavailable; no run request was sent."); return; } const current = ++generation.current; request.current?.abort(); const controller = new AbortController(); request.current = controller; setRefreshing(true); try { const key = selectedProject ?? "*"; const result = await client.listRuns({ projectId: selectedProject, etag: listEtags.current.get(key), signal: controller.signal }); if (current !== generation.current) return; if (!result.unchanged) { setRuns(result.runs); setSelected((previous) => result.runs.find((run) => run.run_id === (routeRunIdRef.current ?? previous?.run_id)) ?? null); setSyncMessage(`Authoritative state updated at ${new Date().toLocaleTimeString()}.`); } else setSyncMessage(`Authoritative state unchanged at ${new Date().toLocaleTimeString()}.`); if (result.etag) listEtags.current.set(key, result.etag); setError(null); setHealth("connected"); } catch (reason) { if (!(reason instanceof DOMException && reason.name === "AbortError") && current === generation.current) { setError(reason instanceof Error ? reason.message : "Run inventory is temporarily unavailable."); setSyncMessage("Authoritative refresh failed; showing the last verified inventory."); setHealth("unavailable"); } } finally { if (current === generation.current) setRefreshing(false); } }, [client, projectsLoaded, selectedProject]);
+  const refreshTimeline = useCallback(async (runId: string) => { const current = ++timelineGeneration.current; try { const result = await client.getTimeline(runId, { etag: timelineEtags.current.get(runId) }); if (current !== timelineGeneration.current) return; if (!result.unchanged) { timelineCache.current.set(runId, result.events); setTimeline(result.events); setTimelineMessage(`Timeline updated at ${new Date().toLocaleTimeString()}.`); } else { setTimeline(timelineCache.current.get(runId) ?? []); setTimelineMessage("Timeline unchanged."); } setTimelineRunId(runId); if (result.etag) timelineEtags.current.set(runId, result.etag); } catch { if (current === timelineGeneration.current) setTimelineMessage("Timeline is temporarily unavailable; showing the last verified events."); } }, [client]);
+  useEffect(() => { const controller = new AbortController(); void client.listProjects(controller.signal).then((items) => { setProjects(items); setSelectedProject((current) => current && items.some((item) => item.project_id === current) ? current : items.length === 1 ? items[0].project_id : undefined); setProjectsLoaded(true); }).catch(() => { setError("Unable to load authorized project inventory."); setHealth("unavailable"); }); void client.getHealth(controller.signal).then((ok) => setHealth(ok ? "connected" : "unavailable")).catch(() => setHealth("unavailable")); return () => controller.abort(); }, [client]);
+  useEffect(() => { if (projectsLoaded) void refresh(); }, [projectsLoaded, refresh]);
+  useEffect(() => { if (!projectsLoaded || !routeRunId || selected?.run_id === routeRunId) return; let cancelled = false; void client.getRun(routeRunId).then((detail) => { if (!cancelled) { setRouteUnavailable(false); setSelected(detail); } }).catch(() => { if (!cancelled) setRouteUnavailable(true); }); return () => { cancelled = true; }; }, [client, projectsLoaded, routeRunId, selected?.run_id]);
+  useEffect(() => { if (!projectsLoaded || selected) return; const timer = window.setInterval(() => void refresh(), 15_000); return () => window.clearInterval(timer); }, [projectsLoaded, refresh, selected]);
+  useEffect(() => { if (!selected) return; void client.getRun(selected.run_id).then((detail) => setSelected((current) => current?.run_id === detail.run_id ? detail : current)).catch(() => setError("Unable to load the latest scoped run detail; showing the last verified summary.")); void refreshTimeline(selected.run_id); const timer = window.setInterval(() => { void client.getRun(selected.run_id).then((detail) => setSelected((current) => current?.run_id === detail.run_id ? detail : current)).catch(() => undefined); void refreshTimeline(selected.run_id); }, 15_000); return () => window.clearInterval(timer); }, [client, refreshTimeline, selected?.run_id]);
+  useEffect(() => { try { window.localStorage.setItem("cogito-workbench-theme", theme); } catch { /* preference storage is optional */ } }, [theme]);
+  useEffect(() => { const listener = () => { const current = readRoute(); routeRunIdRef.current = current.runId; setRouteRunId(current.runId); setRouteView(current.view); setNodeId(current.nodeId); setNodeTab(current.nodeTab); setTabState(current.tab); }; window.addEventListener("popstate", listener); return () => window.removeEventListener("popstate", listener); }, []);
+  const openCanvas = (run: Run) => { setDecisionNotice(null); setRouteUnavailable(false); routeRunIdRef.current = run.run_id; setSelected(run); setRouteRunId(run.run_id); setRouteView("canvas"); setNodeId(null); window.history.pushState({}, "", canvasRoute(run)); };
+  const setTab = (nextTab: DetailTab) => { setTabState(nextTab); if (selected) window.history.pushState({}, "", routeFor(selected, nextTab)); };
+  const setDossierTab = (nextTab: NodeDossierTab) => { setNodeTab(nextTab); if (selected && nodeId) window.history.pushState({}, "", nodeRoute(selected, nodeId, nextTab)); };
+  const backToCanvas = () => { if (!selected) return; setRouteView("canvas"); setNodeId(null); window.history.pushState({}, "", canvasRoute(selected)); };
+  const back = () => { window.history.pushState({}, "", "/"); setRouteUnavailable(false); routeRunIdRef.current = null; setRouteRunId(null); setRouteView("mission"); setNodeId(null); setSelected(null); };
+  const selectedRun = selected ?? runs.find((run) => run.run_id === routeRunId) ?? null;
+  const refreshSelected = useCallback(async () => { await refresh(); if (selectedRun) { const detail = await client.getRun(selectedRun.run_id); setSelected((current) => current?.run_id === detail.run_id ? detail : current); await refreshTimeline(selectedRun.run_id); } }, [client, refresh, refreshTimeline, selectedRun]);
+  const graph = selectedRun ? graphFor(selectedRun) : null;
+  const selectedNode = graph?.nodes.find((node) => node.id === nodeId) ?? null;
+  const content = useMemo(() => selectedRun && routeView === "canvas" ? <WorkflowCanvas client={client} run={selectedRun} timeline={timelineRunId === selectedRun.run_id ? timeline : []} onBack={back} onRefresh={refreshSelected} decisionNotice={decisionNotice} onDecisionComplete={() => setDecisionNotice("Decision accepted; canonical state has been refreshed.")} /> : selectedRun && routeView === "node" && selectedNode && graph ? <NodeDossier client={client} run={selectedRun} node={selectedNode} edges={graph.edges} timeline={timelineRunId === selectedRun.run_id ? timeline : []} tab={nodeTab} setTab={setDossierTab} onBack={back} onCanvas={backToCanvas} onRefresh={refreshSelected} decisionNotice={decisionNotice} onDecisionComplete={() => setDecisionNotice("Decision accepted; canonical state has been refreshed.")} /> : selectedRun && routeView === "node" ? <UnavailableRun onBack={backToCanvas} entity="Node" /> : selectedRun && routeView === "legacy" ? <Detail client={client} run={selectedRun} tab={tab} setTab={setTab} timeline={timelineRunId === selectedRun.run_id ? timeline : []} timelineMessage={timelineRunId === selectedRun.run_id ? timelineMessage : "Loading scoped timeline…"} onBack={back} onRefresh={refreshSelected} decisionNotice={decisionNotice} onDecisionComplete={() => setDecisionNotice("Decision accepted; canonical state has been refreshed.")} /> : routeRunId && routeUnavailable ? <UnavailableRun onBack={back} /> : <MissionControl runs={runs} onOpen={openCanvas} refresh={refresh} refreshing={refreshing} syncMessage={syncMessage} />, [back, backToCanvas, client, decisionNotice, graph, nodeTab, refreshSelected, routeRunId, routeUnavailable, routeView, runs, selectedNode, selectedRun, setDossierTab, syncMessage, tab, timeline, timelineMessage, timelineRunId]);
+  return <main className="app-shell" data-theme={theme}><Sidebar projects={projects} selectedProject={selectedProject} setSelectedProject={setSelectedProject} health={health} theme={theme} setTheme={setTheme} onRuns={back} /><div className="main-content">{error && <p className="app-error" role="alert">{error}</p>}{content}</div></main>;
 }

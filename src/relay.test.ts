@@ -23,6 +23,7 @@ test("forwards only allowlisted Workbench requests with the server-side credenti
   const origin = await listen(server);
 
   const allowed = await fetch(`${origin}/api/cogito/api/v1/workbench/runs`);
+  const timeline = await fetch(`${origin}/api/cogito/api/v1/workbench/runs/run-123/timeline`);
   const denied = await fetch(`${origin}/api/cogito/api/v1/runs`);
   const crossOrigin = await fetch(`${origin}/api/cogito//attacker.example/api/v1/workbench/runs`);
   await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
@@ -30,9 +31,14 @@ test("forwards only allowlisted Workbench requests with the server-side credenti
   expect(allowed.status).toBe(200);
   expect(denied.status).toBe(404);
   expect(crossOrigin.status).toBe(404);
-  expect(upstream).toHaveBeenCalledTimes(1);
+  expect(timeline.status).toBe(200);
+  expect(upstream).toHaveBeenCalledTimes(2);
   expect(upstream).toHaveBeenCalledWith(
     new URL("https://api.example.test/api/v1/workbench/runs"),
+    expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer server-only-token" }) })
+  );
+  expect(upstream).toHaveBeenCalledWith(
+    new URL("https://api.example.test/api/v1/workbench/runs/run-123/timeline"),
     expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer server-only-token" }) })
   );
 });
@@ -101,6 +107,28 @@ test("refuses a static-token standalone server in production", () => {
     token: "server-only-token",
     environment: "production"
   })).toThrow("Production startup requires an OIDC session relay");
+});
+
+test("serves the single-page application for a deep run link without masking API routes", async () => {
+  const app = createDevelopmentServer({
+    upstreamUrl: "https://api.example.test",
+    token: "server-only-token",
+    staticDirectory: new URL("../dist", import.meta.url).pathname
+  });
+  const server = app.listen(0, "127.0.0.1");
+  const origin = await listen(server);
+
+  const detail = await fetch(`${origin}/runs/run-123/summary`);
+  const api = await fetch(`${origin}/api/unknown`);
+  const apiRoot = await fetch(`${origin}/api`);
+  const health = await fetch(`${origin}/healthz`);
+  await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+
+  expect(detail.status).toBe(200);
+  expect(await detail.text()).toContain("Cogito Operator Workbench");
+  expect(api.status).toBe(404);
+  expect(apiRoot.status).toBe(404);
+  expect(health.status).toBe(404);
 });
 
 test("forwards only the fixed health and project inventory reads", async () => {
