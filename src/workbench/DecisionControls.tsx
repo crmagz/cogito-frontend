@@ -25,6 +25,13 @@ export function DecisionControls({ client, run, onComplete, onSuccess }: { clien
       await onComplete();
       onSuccess?.();
     } catch (error) {
+      if (error instanceof Error && error.message.includes("(409)")) {
+        try {
+          await onComplete();
+        } catch {
+          // The conflict is still surfaced below if a canonical refresh is temporarily unavailable.
+        }
+      }
       if (mounted.current) setMessage(error instanceof Error ? error.message : "Decision could not be submitted.");
     } finally {
       if (mounted.current) setPending(false);

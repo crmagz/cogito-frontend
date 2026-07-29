@@ -48,19 +48,18 @@ test("renders a real Kind-backed scoped Workbench run and verified evidence", as
     await page.goto(origin);
     await expect(page.getByRole("heading", { name: "Mission Control" })).toBeVisible();
     await page.getByText(runId.slice(0, 8), { exact: false }).first().click();
-    await expect(page.getByRole("heading", { name: "Workflow relay" })).toBeVisible();
-    await expect(page.getByText("Projected path from authoritative run state")).toBeVisible();
-
-    const planNode = page.getByRole("button", { name: /plan queue/i });
-    if (await planNode.count()) {
-      await planNode.click();
-      await expect(page.getByRole("heading", { name: "plan", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: /plan evidence/i })).toBeVisible();
-    }
+    await expect(page.getByRole("button", { name: "Focus Specification" })).toBeVisible();
+    await page.getByRole("button", { name: "Focus Specification" }).click();
+    await expect(page.getByRole("button", { name: "Focus Specification" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("Selected stage details")).toContainText("Specification");
+    await expect(page.locator(".embedded-dossier").getByRole("heading", { name: "Specification", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Configuration" }).click();
+    await expect(page.getByLabel("Authoritative node display context")).toContainText("specification");
     if (decision) {
+      await page.getByRole("button", { name: "Focus Plan approval" }).click();
       await page.getByLabel("Rationale for rejection or revision").fill("Browser Kind E2E revision validation");
       await page.getByRole("button", { name: "Request revision" }).click();
-      await expect(page.getByText("Decision accepted; the authoritative state has been refreshed.")).toBeVisible();
+      await expect(page.getByText("Decision accepted; canonical state has been refreshed.")).toBeVisible();
       await expect(page.getByRole("button", { name: "Request revision" })).toHaveCount(0);
     }
   } finally {

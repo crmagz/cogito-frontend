@@ -30,14 +30,33 @@ function send(response, code, body, headers = {}) {
   response.end(body ? JSON.stringify(body) : "");
 }
 
-test("operator decision refreshes a browser-rendered authoritative workflow detail", async ({ page }) => {
+test("operator decision refreshes a browser-rendered authoritative Workflow Canvas and Dossier", async ({ page }) => {
   let approved = false;
   const actions = [];
-  const run = (detail = false) => ({
+  const run = (detail = false) => {
+    const stages = [
+      { stage_id: "specification", label: "Specification", state: "completed", availability: "authoritative", reason: "Specification stored.", artifact_kind: "source" },
+      { stage_id: "planning", label: "Planning", state: "completed", availability: "authoritative", reason: "Plan generated.", artifact_kind: "plan" },
+      { stage_id: "plan_approval", label: "Plan approval", state: approved ? "completed" : "awaiting_operator", availability: "authoritative", reason: approved ? "Gate advanced." : "Decision required.", artifact_kind: "plan" },
+      { stage_id: "implementation", label: "Implementation", state: "unavailable", availability: "unavailable", reason: "Not started.", artifact_kind: null },
+      { stage_id: "implementation_approval", label: "Implementation approval", state: "unavailable", availability: "unavailable", reason: "Not started.", artifact_kind: null }
+    ];
+    return {
     run_id: "run-browser-e2e",
     project_id: "default",
     status: approved ? "completed" : "awaiting_plan_approval",
     submitted_at: now,
+    workflow_id: "planning-run-browser-e2e-revision-1",
+    stages,
+    workflow_graph: {
+      nodes: stages.map((stage) => ({ ...stage, node_type: stage.stage_id.includes("approval") ? "gate" : stage.stage_id === "specification" ? "queue" : "agent" })),
+      edges: [
+        { source_node_id: "specification", target_node_id: "planning", style: "solid", emphasis: "primary" },
+        { source_node_id: "planning", target_node_id: "plan_approval", style: "solid", emphasis: "primary" },
+        { source_node_id: "plan_approval", target_node_id: "implementation", style: "solid", emphasis: "primary" },
+        { source_node_id: "implementation", target_node_id: "implementation_approval", style: "solid", emphasis: "primary" }
+      ]
+    },
     active_gate: approved ? null : "plan",
     artifacts: [{ kind: "source", sha256: digest }, { kind: "plan", sha256: digest }],
     abilities: ["view", "approve"],
@@ -47,7 +66,8 @@ test("operator decision refreshes a browser-rendered authoritative workflow deta
     approval_history: detail ? [{ decision_id: "decision-browser-e2e", gate: "plan", decision: "approve", artifact_sha256: digest, actor_id: "operator-browser", created_at: now, delivered: true }] : [],
     execution: detail ? { phase_count: 2, succeeded_phase_count: 2, failed_phase_count: 0, verification_passed: 2, verification_failed: 0, review_status: "converged", validation_status: "passed" } : null,
     external_links: detail ? [{ kind: "repository", label: "Repository", url: "https://github.com/acme/api-gateway" }] : []
-  });
+    };
+  };
   const upstream = createServer((request, response) => {
     void (async () => {
       assert.equal(request.headers.authorization, "Bearer browser-e2e-token");
@@ -60,6 +80,9 @@ test("operator decision refreshes a browser-rendered authoritative workflow deta
         return send(response, 200, { items: [run()], revision: etag }, { etag });
       }
       if (request.url === "/api/v1/workbench/runs/run-browser-e2e") return send(response, 200, run(true));
+      if (request.url === "/api/v1/workbench/runs/run-browser-e2e/timeline") {
+        return send(response, 200, { items: [{ event_id: "event-browser-e2e", event_type: "plan.awaiting_approval", occurred_at: now, gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }], revision: "timeline" }, { etag: "timeline" });
+      }
       if (request.url?.startsWith(`/api/v1/workbench/runs/run-browser-e2e/evidence/plan?artifact_sha256=${digest}`)) {
         return send(response, 200, { kind: "plan", sha256: digest, content_type: "application/json", content: "{}" });
       }
@@ -87,21 +110,28 @@ test("operator decision refreshes a browser-rendered authoritative workflow deta
   try {
     await page.goto(frontendOrigin);
     await expect(page.getByRole("heading", { name: "Mission Control" })).toBeVisible();
-    await page.getByText("run-brow", { exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Workflow relay" })).toBeVisible();
-    await page.getByRole("button", { name: /plan queue awaiting operator decision/i }).click();
-    await expect(page.getByRole("heading", { name: "Execution summary" })).toBeVisible();
-    await expect(page.getByText("2 passed / 0 failed / 2 recorded")).toBeVisible();
-    await expect(page.getByText("$1.25")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Repository" })).toHaveAttribute("href", "https://github.com/acme/api-gateway");
-
+    await page.getByText("run-browser-e2e", { exact: true }).click();
+    await expect(page.getByRole("heading", { name: "planning-run-browser-e2e-revision-1" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Focus Plan approval" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".embedded-dossier").getByRole("heading", { name: "Plan approval", exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/workflows\/run-browser-e2e$/);
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Focus Plan approval" })).toBeVisible();
+    await page.getByRole("button", { name: "Focus Implementation", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Focus Implementation", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Focus Plan approval" }).click();
+    await expect(page.getByLabel("Selected stage details").getByText("Decision required.")).toBeVisible();
+    for (const name of ["Execution log", "Configuration", "Dependencies", "History"]) {
+      await page.getByRole("tab", { name }).click();
+    }
+    await page.getByRole("tab", { name: "Overview" }).click();
     await page.getByRole("button", { name: "Approve" }).click();
     await expect.poll(() => actions.length).toBe(1);
     assert.equal(actions[0].payload.decision, "approve");
     assert.equal(actions[0].payload.artifact_sha256, digest);
     assert.equal(typeof actions[0].key, "string");
     await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
-    await expect(page.getByText("plan approve")).toBeVisible();
+    await expect(page.getByText("Decision accepted; canonical state has been refreshed.")).toBeVisible();
   } finally {
     await close(frontend);
     await close(upstream);

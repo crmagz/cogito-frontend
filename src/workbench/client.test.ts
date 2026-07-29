@@ -6,8 +6,10 @@ const run: Run = {
   project_id: "default",
   status: "awaiting_plan_approval",
   submitted_at: "2026-07-26T00:00:00Z",
+  workflow_id: "workflow-123",
   active_gate: "plan",
   artifacts: [{ kind: "plan", sha256: "a".repeat(64) }],
+  stages: [],
   abilities: ["view", "approve"],
   workflow: ["planning", "plan_approval"],
   budget: { max_cost_usd: 3, max_wall_clock_minutes: 45, max_review_rounds: 2, actual_cost_usd: null, turns_used: null },
@@ -113,4 +115,19 @@ test("loads one scoped workflow detail through the fixed relay route", async () 
   await expect(apiClient.getRun("run/123")).resolves.toEqual(run);
 
   expect(fetchMock).toHaveBeenCalledWith("/api/cogito/api/v1/workbench/runs/run%2F123", { signal: undefined });
+});
+
+test("loads the fixed scoped timeline route and retains a matching ETag", async () => {
+  const fetchMock = jest.fn(async () => (
+    { ok: false, status: 304, headers: { get: () => null } } as unknown as Response
+  ));
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  await expect(apiClient.getTimeline("run/123", { etag: '"timeline"' })).resolves.toEqual({
+    events: [], revision: '"timeline"', etag: '"timeline"', unchanged: true
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/cogito/api/v1/workbench/runs/run%2F123/timeline",
+    { headers: { "If-None-Match": '"timeline"' }, signal: undefined }
+  );
 });

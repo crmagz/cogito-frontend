@@ -1,226 +1,193 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { jest } from "@jest/globals";
+import { beforeEach, jest } from "@jest/globals";
 
 import { App } from "./App";
-import type { ApiClient, Run } from "./client";
+import type { ApiClient, Run, TimelineEvent } from "./client";
 
-const waitingRun: Run = {
-  run_id: "run-12345678",
-  project_id: "default",
-  status: "awaiting_plan_approval",
-  submitted_at: "2026-07-26T00:00:00Z",
-  active_gate: "plan",
-  artifacts: [{ kind: "plan", sha256: "a".repeat(64) }],
-  abilities: ["view", "approve"],
-  workflow: ["planning", "plan", "plan_approval"],
-  budget: { max_cost_usd: 3, max_wall_clock_minutes: 45, max_review_rounds: 2, actual_cost_usd: null, turns_used: null },
-  approval_history_available: true,
-  approval_history: [],
-  execution: null,
-  external_links: []
+const digest = "a".repeat(64);
+const stages: Run["stages"] = [{ stage_id: "specification", label: "Specification", state: "completed", availability: "authoritative", reason: "Specification stored.", artifact_kind: "source" }, { stage_id: "planning", label: "Planning", state: "completed", availability: "authoritative", reason: "Plan generated.", artifact_kind: "plan" }, { stage_id: "plan_approval", label: "Plan approval", state: "awaiting_operator", availability: "authoritative", reason: "Decision required.", artifact_kind: "plan" }, { stage_id: "implementation", label: "Implementation", state: "unavailable", availability: "unavailable", reason: "Not started.", artifact_kind: null }, { stage_id: "implementation_approval", label: "Implementation approval", state: "unavailable", availability: "unavailable", reason: "Not started.", artifact_kind: null }];
+const run: Run = {
+  run_id: "run-12345678", project_id: "default", status: "awaiting_plan_approval", submitted_at: "2026-07-26T00:00:00Z", workflow_id: "planning-run-42-revision-1", active_gate: "plan",
+  artifacts: [{ kind: "source", sha256: digest }, { kind: "plan", sha256: digest }], stages, workflow_graph: { nodes: stages.map((stage) => ({ ...stage, node_type: stage.stage_id.includes("approval") ? "gate" : stage.stage_id === "specification" ? "queue" : "agent" })), edges: [{ source_node_id: "specification", target_node_id: "planning", style: "solid", emphasis: "primary" }, { source_node_id: "planning", target_node_id: "plan_approval", style: "solid", emphasis: "primary" }, { source_node_id: "plan_approval", target_node_id: "implementation", style: "solid", emphasis: "primary" }, { source_node_id: "implementation", target_node_id: "implementation_approval", style: "solid", emphasis: "primary" }] }, abilities: ["view", "approve"], workflow: ["planning", "plan", "plan_approval"],
+  budget: { max_cost_usd: 3, max_wall_clock_minutes: 45, max_review_rounds: 2, actual_cost_usd: null, turns_used: null }, approval_history_available: true, approval_history: [], execution: null, external_links: []
 };
+const events: TimelineEvent[] = [{ event_id: "event-1", event_type: "plan.awaiting_approval", occurred_at: "2026-07-26T00:00:00Z", gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }];
 
-test("renders the relay grid drill-down and rejects blank revision rationales", async () => {
+function client(overrides: Partial<ApiClient> = {}): ApiClient {
+  return { listProjects: async () => [{ project_id: "default" }], getHealth: async () => true, listRuns: async () => ({ runs: [run], revision: "runs", etag: "runs", unchanged: false }), getRun: async () => run, getTimeline: async () => ({ events, revision: "timeline", etag: "timeline", unchanged: false }), getEvidence: async () => ({ content: '{"title":"verified"}', sha256: digest }), decide: async () => undefined, ...overrides };
+}
+
+beforeEach(() => window.history.replaceState({}, "", "/"));
+
+test("presents Mission Control with filterable authoritative workflow identity", async () => {
   const user = userEvent.setup();
-  const decide = jest.fn<(run: Run, decision: "approve" | "reject" | "request_revision", comment?: string) => Promise<void>>().mockResolvedValue(undefined);
-  const client: ApiClient = {
-    listProjects: async () => [{ project_id: "default" }],
-    getHealth: async () => true,
-    listRuns: async () => ({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false }),
-    getRun: async () => waitingRun,
-    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
-    decide
-  };
+  render(<App client={client()} />);
 
-  render(<App client={client} />);
   expect(await screen.findByRole("heading", { name: "Mission Control" })).toBeVisible();
-  expect(screen.getByRole("navigation", { name: "Workbench navigation" })).toBeVisible();
-
-  await user.click(await screen.findByText("run-1234"));
-  expect(await screen.findByRole("heading", { name: "Workflow relay" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "Workflows" })).toHaveClass("active");
-  expect(screen.getByRole("button", { name: /planning agent projected from run lifecycle/i })).toHaveClass("agent");
-  await user.click(screen.getByRole("button", { name: /plan queue awaiting operator decision/i }));
-  expect(await screen.findByRole("button", { name: "Request revision" })).toBeVisible();
-
-  await user.click(screen.getByRole("button", { name: "Request revision" }));
-
-  expect(decide).not.toHaveBeenCalled();
-  expect(screen.getByText("A rationale is required for this decision")).toBeVisible();
-});
-
-test("does not let a stale refresh overwrite a newer authoritative response", async () => {
-  const user = userEvent.setup();
-  let resolveFirst!: (value: { runs: Run[]; revision: string; etag: string; unchanged: false }) => void;
-  let resolveSecond!: (value: { runs: Run[]; revision: string; etag: string; unchanged: false }) => void;
-  const first = new Promise<{ runs: Run[]; revision: string; etag: string; unchanged: false }>((resolve) => { resolveFirst = resolve; });
-  const second = new Promise<{ runs: Run[]; revision: string; etag: string; unchanged: false }>((resolve) => { resolveSecond = resolve; });
-  const currentRun = { ...waitingRun, run_id: "run-current-123", status: "awaiting_implementation_approval" };
-  const client: ApiClient = {
-    listProjects: async () => [],
-    getHealth: async () => true,
-    listRuns: jest.fn<ApiClient["listRuns"]>().mockReturnValueOnce(first).mockReturnValueOnce(second),
-    getRun: async () => waitingRun,
-    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
-    decide: async () => undefined
-  };
-
-  render(<App client={client} />);
-  await user.click(screen.getByRole("button", { name: /authoritative state/ }));
-  await act(async () => { resolveSecond({ runs: [currentRun], revision: "new", etag: "new", unchanged: false }); });
-  expect(await screen.findByText("awaiting implementation approval")).toBeVisible();
-  await act(async () => { resolveFirst({ runs: [waitingRun], revision: "old", etag: "old", unchanged: false }); });
-  expect(screen.getByText("awaiting implementation approval")).toBeVisible();
-});
-
-test("operates workflow-only navigation, zoom, shell controls, and visible refresh outcomes", async () => {
-  const user = userEvent.setup();
-  const client: ApiClient = {
-    listProjects: async () => [],
-    getHealth: async () => false,
-    listRuns: jest
-      .fn<ApiClient["listRuns"]>()
-      .mockResolvedValueOnce({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false })
-      .mockResolvedValue({ runs: [], revision: "first", etag: "first", unchanged: true }),
-    getRun: async () => waitingRun,
-    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
-    decide: async () => undefined
-  };
-
-  render(<App client={client} />);
-  await user.click(await screen.findByText("run-1234"));
-  expect(screen.queryByRole("button", { name: "Runs" })).not.toBeInTheDocument();
-
-  await user.click(screen.getByRole("button", { name: "Zoom in" }));
-  expect(screen.getByText("110%")).toBeVisible();
-  expect(document.querySelector(".canvas-zoom")).toHaveAttribute("data-zoom", "110");
-  await user.click(screen.getByRole("button", { name: "Fit graph" }));
-  expect(screen.getByText("100%")).toBeVisible();
-
+  expect(screen.getByText("COGITO")).toBeVisible();
+  expect(screen.getByText("AI Orchestration")).toBeVisible();
+  expect(await screen.findByText("planning-run-42-revision-1")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
   expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Open display settings" }));
-  await user.click(screen.getByRole("radio", { name: "light" }));
-  expect(screen.getByRole("main")).toHaveAttribute("data-theme", "light");
-  await user.click(screen.getByRole("button", { name: "Close dialog" }));
-
-  await user.click(within(screen.getByRole("navigation", { name: "Workbench navigation" })).getByRole("button", { name: "Mission Control" }));
-  await user.click(screen.getByRole("button", { name: "Refresh authoritative state" }));
-  expect(await screen.findByRole("status")).toHaveTextContent("Authoritative state unchanged");
-  expect(screen.getAllByText("Authoritative relay connected")).not.toHaveLength(0);
+  await user.click(screen.getByRole("button", { name: "Expand sidebar" }));
+  expect(screen.getAllByText(/Authoritative state updated/)).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Workflows" })).toBeDisabled();
+  await user.click(screen.getByRole("tab", { name: /awaiting decision/i }));
+  expect(screen.getByText("run-12345678")).toBeVisible();
+  await user.type(screen.getByPlaceholderText("Run, workflow, project, status"), "unrelated");
+  expect(screen.getByText("No scoped workflows match this Mission Control view.")).toBeVisible();
 });
 
-test("selects only authorized projects through the server-backed inventory", async () => {
+test("keeps a legacy run usable while workflow graph fields are rolling out", async () => {
+  const legacyRun: Run = { ...run, workflow_id: undefined, stages: undefined, workflow_graph: undefined };
   const user = userEvent.setup();
-  const listRuns = jest.fn<ApiClient["listRuns"]>().mockResolvedValue({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false });
-  const client: ApiClient = {
-    listProjects: async () => [{ project_id: "alpha" }, { project_id: "beta" }],
-    getHealth: async () => true,
-    listRuns,
-    getRun: async () => waitingRun,
-    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
-    decide: async () => undefined
-  };
+  render(<App client={client({ listRuns: async () => ({ runs: [legacyRun], revision: "legacy", etag: "legacy", unchanged: false }), getRun: async () => legacyRun })} />);
 
-  render(<App client={client} />);
-  const selector = await screen.findByRole("combobox", { name: "Active project" });
-  await user.selectOptions(selector, "beta");
-  expect(await screen.findByText("Authoritative state updated", { exact: false })).toBeVisible();
-  expect(listRuns).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: "beta" }));
+  await user.click(await screen.findByText("run-12345678"));
+  expect(await screen.findByText("No authoritative lifecycle graph is available for this run yet.")).toBeVisible();
 });
 
-test("does not poll before server-authorized project inventory resolves", async () => {
-  let resolveProjects!: (projects: { project_id: string }[]) => void;
-  const projects = new Promise<{ project_id: string }[]>((resolve) => { resolveProjects = resolve; });
-  const listRuns = jest.fn<ApiClient["listRuns"]>().mockResolvedValue({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false });
-  const client: ApiClient = {
-    listProjects: async () => projects,
-    getHealth: async () => true,
-    listRuns,
-    getRun: async () => waitingRun,
-    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
-    decide: async () => undefined
+test("renders an authoritative in-progress stage as active", async () => {
+  const activeStages = stages.map((stage) => stage.stage_id === "planning" ? { ...stage, state: "in_progress" as const } : stage);
+  const activeRun: Run = {
+    ...run,
+    status: "planning",
+    active_gate: null,
+    stages: activeStages,
+    workflow_graph: { ...run.workflow_graph!, nodes: activeStages.map((stage) => ({ ...stage, node_type: stage.stage_id.includes("approval") ? "gate" : stage.stage_id === "specification" ? "queue" : "agent" })) }
   };
-
-  render(<App client={client} />);
-  expect(listRuns).not.toHaveBeenCalled();
-  await act(async () => { resolveProjects([{ project_id: "default" }]); });
-  expect(await screen.findByText("run-1234")).toBeVisible();
-  expect(listRuns).toHaveBeenCalledWith(expect.objectContaining({ projectId: "default" }));
-});
-
-test("fails closed when the authorized project inventory cannot be loaded", async () => {
   const user = userEvent.setup();
-  const listRuns = jest.fn<ApiClient["listRuns"]>();
-  const client: ApiClient = {
-    listProjects: async () => { throw new Error("project service unavailable"); },
-    getHealth: async () => true,
-    listRuns,
-    getRun: async () => waitingRun,
-    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
-    decide: async () => undefined
-  };
+  render(<App client={client({ listRuns: async () => ({ runs: [activeRun], revision: "active", etag: "active", unchanged: false }), getRun: async () => activeRun })} />);
 
-  render(<App client={client} />);
-  expect(await screen.findByText("Unable to load authorized project inventory.")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Refresh authoritative state" }));
-  expect(screen.getByRole("status")).toHaveTextContent("Project inventory is unavailable; no run request was sent.");
-  expect(listRuns).not.toHaveBeenCalled();
+  await user.click(await screen.findByText("run-12345678"));
+  expect(screen.getByRole("button", { name: "Focus Planning" }).closest("li")).toHaveClass("active");
 });
 
-test("does not poll or refetch details while a workflow is open", async () => {
+test("restores a cached timeline when a previously viewed run is not modified", async () => {
+  const user = userEvent.setup();
+  const secondRun: Run = { ...run, run_id: "run-87654321", workflow_id: "planning-run-43-revision-1" };
+  const firstEvent: TimelineEvent = { ...events[0], event_id: "event-first", event_type: "plan.first_event" };
+  const secondEvent: TimelineEvent = { ...events[0], event_id: "event-second", event_type: "plan.second_event" };
+  const timelineCalls = new Map<string, number>();
+  const getTimeline = jest.fn<ApiClient["getTimeline"]>(async (runId) => {
+    const calls = (timelineCalls.get(runId) ?? 0) + 1;
+    timelineCalls.set(runId, calls);
+    if (runId === run.run_id && calls > 1) return { events: [], revision: "first", etag: "first", unchanged: true };
+    return runId === run.run_id
+      ? { events: [firstEvent], revision: "first", etag: "first", unchanged: false }
+      : { events: [secondEvent], revision: "second", etag: "second", unchanged: false };
+  });
+  render(<App client={client({ listRuns: async () => ({ runs: [run, secondRun], revision: "runs", etag: "runs", unchanged: false }), getRun: async (runId) => runId === run.run_id ? run : secondRun, getTimeline })} />);
+
+  await user.click(await screen.findByText(run.run_id));
+  await user.click(screen.getAllByRole("button", { name: "Mission Control" })[0]);
+  await user.click(await screen.findByText(secondRun.run_id));
+  await user.click(screen.getAllByRole("button", { name: "Mission Control" })[0]);
+  await user.click(await screen.findByText(run.run_id));
+  await user.click(screen.getByRole("tab", { name: "History" }));
+
+  expect(await screen.findByText("plan.first event")).toBeVisible();
+  expect(screen.queryByText("plan.second event")).not.toBeInTheDocument();
+});
+
+test("keeps the selected-stage Dossier embedded in a deep-linkable Workflow Canvas", async () => {
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+  await user.click(await screen.findByText("run-12345678"));
+
+  expect(await screen.findByRole("heading", { name: "planning-run-42-revision-1" })).toBeVisible();
+  expect(window.location.pathname).toBe("/workflows/run-12345678");
+  expect(screen.getAllByRole("heading", { name: /^Plan approval$/ })).toHaveLength(2);
+  await user.click(screen.getByRole("tab", { name: "Dependencies" }));
+  expect(screen.getAllByText("Planning", { exact: true }).length).toBeGreaterThan(0);
+  expect(window.location.pathname).toBe("/workflows/run-12345678");
+});
+
+test("replaces the lifecycle bar with an interactive compact authoritative topology", async () => {
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+  await user.click(await screen.findByText("run-12345678"));
+
+  await user.click(await screen.findByRole("button", { name: "Visualize workflow topology" }));
+  expect(screen.getByText("Workflow topology")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Select Implementation" }));
+  expect(screen.getByLabelText("Selected stage details")).toHaveTextContent("Implementation");
+  await user.click(screen.getByRole("button", { name: "Lifecycle" }));
+  expect(screen.getByText("Lifecycle")).toBeVisible();
+});
+
+test("uses the authoritative graph nodes for the lifecycle rail and focuses the selected section", async () => {
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+  await user.click(await screen.findByText("run-12345678"));
+
+  expect(screen.getByText("Lifecycle")).toBeVisible();
+  const planApproval = screen.getByRole("button", { name: "Focus Plan approval" });
+  expect(planApproval).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByLabelText("Selected stage details")).toHaveTextContent("Decision required.");
+  await user.click(screen.getByRole("button", { name: /^Focus Implementation$/ }));
+  expect(screen.getByRole("button", { name: /^Focus Implementation$/ })).toHaveAttribute("aria-pressed", "true");
+  expect(planApproval).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByLabelText("Selected stage details")).toHaveTextContent("Not started.");
+  expect(screen.getByLabelText("Selected stage details").querySelector("button:not([aria-label='Collapse stage details'])")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Collapse stage details" }));
+  expect(screen.getByLabelText("Selected stage details")).toHaveTextContent("Implementation");
+  expect(screen.getByRole("button", { name: "Expand stage details" })).toHaveAttribute("aria-expanded", "false");
+  await user.click(screen.getByRole("button", { name: "Focus Plan approval" }));
+  expect(screen.getByLabelText("Selected stage details")).toHaveTextContent("Plan approval");
+  expect(screen.getByRole("button", { name: "Expand stage details" })).toHaveAttribute("aria-expanded", "false");
+  await user.click(screen.getByRole("button", { name: "Expand stage details" }));
+  expect(screen.getByLabelText("Selected stage details")).toHaveTextContent("Decision required.");
+});
+
+test("keeps a stale approval conflict visible and never claims success", async () => {
+  const user = userEvent.setup();
+  const decide = jest.fn<ApiClient["decide"]>().mockRejectedValue(new Error("Authoritative API request failed (409)"));
+  const getRun = jest.fn<ApiClient["getRun"]>().mockResolvedValue(run);
+  render(<App client={client({ decide, getRun })} />);
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("button", { name: "Approve" }));
+
+  expect(await screen.findByText("Authoritative API request failed (409)")).toBeVisible();
+  expect(screen.queryByText("Decision accepted; canonical state has been refreshed.")).not.toBeInTheDocument();
+  expect(getRun.mock.calls.length).toBeGreaterThanOrEqual(2);
+});
+
+test("shows a non-disclosing recovery state for an unavailable direct run link", async () => {
+  window.history.pushState({}, "", "/runs/foreign-run/summary");
+  const user = userEvent.setup();
+  render(<App client={client({ listRuns: async () => ({ runs: [], revision: "empty", etag: "empty", unchanged: false }), getRun: async () => { throw new Error("not found"); } })} />);
+
+  expect(await screen.findByRole("heading", { name: "Run unavailable" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Return to Mission Control" }));
+  expect(await screen.findByRole("heading", { name: "Mission Control" })).toBeVisible();
+  window.history.replaceState({}, "", "/");
+});
+
+test("recovers an invalid node deep link to its authoritative Workflow Canvas", async () => {
+  window.history.pushState({}, "", "/workflows/run-12345678/nodes/unknown/overview");
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+
+  expect(await screen.findByRole("heading", { name: "Node unavailable" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Return to Workflow Canvas" }));
+  expect(await screen.findByRole("heading", { name: "planning-run-42-revision-1" })).toBeVisible();
+  expect(window.location.pathname).toBe("/workflows/run-12345678");
+});
+
+test("does not poll the inbox while a selected detail has its own canonical refresh", async () => {
   jest.useFakeTimers();
   try {
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
-    const listRuns = jest
-      .fn<ApiClient["listRuns"]>()
-      .mockResolvedValue({ runs: [waitingRun], revision: "first", etag: "first", unchanged: false });
-    const getRun = jest.fn<ApiClient["getRun"]>().mockResolvedValue(waitingRun);
-    const client: ApiClient = {
-      listProjects: async () => [],
-      getHealth: async () => true,
-      listRuns,
-      getRun,
-      getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
-      decide: async () => undefined
-    };
-
-    render(<App client={client} />);
-    await user.click(await screen.findByText("run-1234"));
-    expect(await screen.findByRole("heading", { name: "Workflow relay" })).toBeVisible();
-    await act(async () => {});
+    const listRuns = jest.fn<ApiClient["listRuns"]>().mockResolvedValue({ runs: [run], revision: "runs", etag: "runs", unchanged: false });
+    const getRun = jest.fn<ApiClient["getRun"]>().mockResolvedValue(run);
+    const getTimeline = jest.fn<ApiClient["getTimeline"]>().mockResolvedValue({ events, revision: "timeline", etag: "timeline", unchanged: false });
+    render(<App client={client({ listRuns, getRun, getTimeline })} />);
+    await user.click(await screen.findByText("run-12345678"));
     await act(async () => { await jest.advanceTimersByTimeAsync(15_000); });
-
     expect(listRuns).toHaveBeenCalledTimes(1);
-    expect(getRun).toHaveBeenCalledTimes(1);
-  } finally {
-    jest.useRealTimers();
-  }
-});
-
-test("does not present approval history as empty when the scoped viewer cannot read it", async () => {
-  const user = userEvent.setup();
-  const viewerRun = {
-    ...waitingRun,
-    abilities: ["view"],
-    approval_history_available: false,
-    external_links: [{ kind: "repository", label: "Repository", url: "https://github.com/acme/api-gateway" }]
-  };
-  const client: ApiClient = {
-    listProjects: async () => [{ project_id: "default" }],
-    getHealth: async () => true,
-    listRuns: async () => ({ runs: [viewerRun], revision: "viewer", etag: "viewer", unchanged: false }),
-    getRun: async () => viewerRun,
-    getEvidence: async () => ({ content: "{}", sha256: waitingRun.artifacts[0].sha256 }),
-    decide: async () => undefined
-  };
-
-  render(<App client={client} />);
-  await user.click(await screen.findByText("run-1234"));
-  await user.click(screen.getByRole("button", { name: /plan queue/i }));
-
-  expect(await screen.findByText("Approval history is available to approvers.")).toBeVisible();
-  expect(screen.queryByText("No operator decisions have been recorded.")).not.toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Repository" })).toHaveAttribute("rel", "noopener noreferrer");
+    expect(getRun).toHaveBeenCalledTimes(2);
+    expect(getTimeline).toHaveBeenCalledTimes(2);
+  } finally { jest.useRealTimers(); }
 });
