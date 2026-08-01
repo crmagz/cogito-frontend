@@ -2,8 +2,8 @@ global:
   production: true
 
 image:
-  # The deployment pipeline supplies its ECR registry/repository, for example
-  # 123456789012.dkr.ecr.us-east-1.amazonaws.com/cogito-frontend.
+  # The deployment pipeline supplies the immutable GHCR image, for example
+  # ghcr.io/crmagz/cogito-workbench.
   repository: ""
   tag: ""
   digest: ""

@@ -8,16 +8,19 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  id-token: write
+  packages: write
 
 jobs:
   verify:
-    uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1
+    # Immutable Forge feature revision. Replace with its released exact tag
+    # after the Forge change merges.
+    uses: crmagz/forge/.github/workflows/build-node.yml@50bbf87de251bad7e7a5f77d545eb6742257791d
     with:
       working-directory: .
       node-version: "24"
       tag-prefix: frontend/
-      ecr-repository: cogito-frontend
+      container-registry: ghcr
+      ghcr-repository: crmagz/cogito-workbench
       dockerfile: Dockerfile
       platforms: linux/amd64,linux/arm64
       # Forge owns validation, semantic versioning, image publishing, and

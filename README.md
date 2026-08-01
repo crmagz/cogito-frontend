@@ -59,10 +59,12 @@ service. Enable the optional `serviceMonitor` only in clusters that have the
 Prometheus Operator CRD; it scrapes `/metrics` for relay response counts.
 
 The Forge callable Node workflow builds and publishes this image on `main` to
-the `cogito-frontend` ECR repository for both `linux/amd64` and `linux/arm64`.
-It is also the sole release authority: it calculates semantic versions, creates
-the `frontend/v*` tag, and creates GitHub releases. The old repository-specific
-release workflow was removed to prevent competing tag/release pipelines.
+`ghcr.io/crmagz/cogito-workbench` for both `linux/amd64` and `linux/arm64`.
+It uses the repository-scoped ephemeral GitHub token with package publishing
+permission rather than AWS credentials. Forge is also the sole release
+authority: it calculates semantic versions, creates the `frontend/v*` tag, and
+creates GitHub releases. The old repository-specific release workflow was
+removed to prevent competing tag/release pipelines.
 
 For local Kind validation only, the ignored `.claude/Makefile` builds the image,
 loads it into Kind, deploys a static-token relay that reads the existing cluster
