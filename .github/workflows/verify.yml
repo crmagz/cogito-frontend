@@ -13,7 +13,7 @@ permissions:
 jobs:
   verify:
     # Immutable Forge build workflow release.
-    uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1.1.0
+    uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1.1.1
     with:
       working-directory: .
       node-version: "24"
