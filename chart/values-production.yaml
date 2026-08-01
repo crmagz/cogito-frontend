@@ -1,0 +1,39 @@
+global:
+  production: true
+
+image:
+  # The deployment pipeline supplies its ECR registry/repository, for example
+  # 123456789012.dkr.ecr.us-east-1.amazonaws.com/cogito-frontend.
+  repository: ""
+  tag: "v0.1.0"
+  digest: ""
+  pullPolicy: IfNotPresent
+
+relay:
+  mode: session
+  # Set to an OIDC-aware, same-cluster session relay that owns browser sessions
+  # and obtains API credentials. This must not be the Cogito API directly.
+  session:
+    upstreamUrl: ""
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+
+networkPolicy:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: "alb"
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+  hosts:
+    - host: workbench.internal.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

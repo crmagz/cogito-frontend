@@ -3,7 +3,7 @@
 import type { Server } from "node:http";
 import { jest } from "@jest/globals";
 
-import { createDevelopmentServer, createRelay } from "../server.mjs";
+import { createDevelopmentServer, createProductionServer, createRelay, createSessionRelay } from "../server.mjs";
 
 async function listen(server: Server): Promise<string> {
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -109,6 +109,36 @@ test("refuses a static-token standalone server in production", () => {
   })).toThrow("Production startup requires an OIDC session relay");
 });
 
+test("requires a configured session relay for production", () => {
+  expect(() => createSessionRelay({ sessionRelayUrl: "" })).toThrow("COGITO_SESSION_RELAY_URL");
+  expect(() => createProductionServer({ sessionRelayUrl: "https://session.example.test", staticDirectory: "" })).toThrow("static directory");
+});
+
+test("production server serves health locally and forwards only allowlisted session requests", async () => {
+  const upstream = jest.fn(async (url: URL, init: RequestInit): Promise<Response> => {
+    expect(init.headers).toMatchObject({ accept: "application/json", cookie: "session=verified" });
+    return new Response(JSON.stringify({ path: url.pathname }), { status: 200, headers: { etag: "timeline-revision" } });
+  });
+  const app = createProductionServer({
+    sessionRelayUrl: "https://session.example.test",
+    staticDirectory: new URL("../dist", import.meta.url).pathname,
+    fetchImpl: upstream as unknown as typeof fetch
+  });
+  const server = app.listen(0, "127.0.0.1");
+  const origin = await listen(server);
+
+  const health = await fetch(`${origin}/healthz`);
+  const timeline = await fetch(`${origin}/api/cogito/api/v1/workbench/runs/run-123/timeline`, { headers: { cookie: "session=verified" } });
+  const denied = await fetch(`${origin}/api/cogito/api/v1/workbench/runs/run-123/internal`);
+  await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+
+  expect(health.status).toBe(200);
+  expect(timeline.status).toBe(200);
+  expect(timeline.headers.get("etag")).toBe("timeline-revision");
+  expect(denied.status).toBe(404);
+  expect(upstream).toHaveBeenCalledWith(new URL("https://session.example.test/api/v1/workbench/runs/run-123/timeline"), expect.anything());
+});
+
 test("serves the single-page application for a deep run link without masking API routes", async () => {
   const app = createDevelopmentServer({
     upstreamUrl: "https://api.example.test",
@@ -129,6 +159,22 @@ test("serves the single-page application for a deep run link without masking API
   expect(api.status).toBe(404);
   expect(apiRoot.status).toBe(404);
   expect(health.status).toBe(404);
+});
+
+test("can expose local process health for packaged static-token development", async () => {
+  const app = createDevelopmentServer({
+    upstreamUrl: "https://api.example.test",
+    token: "server-only-token",
+    staticDirectory: new URL("../dist", import.meta.url).pathname,
+    healthcheck: true
+  });
+  const server = app.listen(0, "127.0.0.1");
+  const origin = await listen(server);
+
+  const health = await fetch(`${origin}/healthz`);
+  await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+
+  expect(health.status).toBe(200);
 });
 
 test("forwards only the fixed health and project inventory reads", async () => {

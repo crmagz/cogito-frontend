@@ -27,6 +27,38 @@ To serve a built application through the development relay, run `npm run build`
 then `npm run serve`. Production startup intentionally fails until a real OIDC
 session relay is configured. Do not use a static upstream token in production.
 
+## Container and Helm deployment
+
+The repository includes a non-root Node image and the `chart/` Helm chart. The
+production chart only accepts `relay.mode=session`, which forwards same-origin
+browser requests to an environment-owned OIDC session relay. It never accepts
+an API token in production. Set `relay.session.upstreamUrl` to that relay and
+use immutable image digests for a production deployment:
+
+```sh
+helm upgrade --install cogito-workbench chart/ \
+  --namespace cogito --create-namespace \
+  -f chart/values.yaml -f chart/values-production.yaml \
+  --set image.repository=$ECR_REGISTRY/cogito-frontend \
+  --set image.digest=sha256:<immutable-image-digest> \
+  --set relay.session.upstreamUrl=http://cogito-session-relay:8080
+```
+
+The Forge callable Node workflow builds and publishes this image on `main` to
+the `cogito-frontend` ECR repository for both `linux/amd64` and `linux/arm64`.
+
+For local Kind validation only, the ignored `.claude/Makefile` builds the image,
+loads it into Kind, deploys a static-token relay that reads the existing cluster
+secret, and forwards the Workbench on port 8001:
+
+```sh
+make -f .claude/Makefile deploy
+make -f .claude/Makefile port-forward
+```
+
+Open `http://127.0.0.1:8001`. The static-token mode is rejected when
+`global.production=true` and must not be used outside local development.
+
 ## Validation
 
 ```sh
