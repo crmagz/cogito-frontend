@@ -1,0 +1,80 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/crmagz/cogito-workbench
+  # Development-only fallback. Production requires image.digest.
+  tag: "latest"
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+
+# Session mode is the only production mode. It proxies same-origin browser
+# requests to an environment-owned OIDC session relay; no API credential is
+# placed in the browser or this chart. Static mode exists solely for local Kind.
+relay:
+  mode: session
+  session:
+    upstreamUrl: ""
+  static:
+    upstreamUrl: ""
+    existingSecret: ""
+    tokenKey: token
+
+networkPolicy:
+  enabled: false
+
+global:
+  production: false

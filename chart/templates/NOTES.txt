@@ -1,0 +1,6 @@
+The Cogito Workbench is available through the {{ include "cogito-workbench.fullname" . }} service.
+
+For local cluster access:
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "cogito-workbench.fullname" . }} 8001:{{ .Values.service.port }}
+
+Session relay mode requires an OIDC-aware relay at relay.session.upstreamUrl.

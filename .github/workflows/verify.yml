@@ -16,5 +16,10 @@ jobs:
     with:
       working-directory: .
       node-version: "24"
-      # The reusable Forge workflow skips its publish job when no target is configured.
+      tag-prefix: frontend/
+      ecr-repository: cogito-frontend
+      dockerfile: Dockerfile
+      platforms: linux/amd64,linux/arm64
+      # Forge owns validation, semantic versioning, image publishing, and
+      # release creation for this repository.
       environment: ci
