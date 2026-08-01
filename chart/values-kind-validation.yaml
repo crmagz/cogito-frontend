@@ -1,0 +1,15 @@
+# Ephemeral Kind integration settings used only by Forge's Helm 4 test job.
+image:
+  repository: cogito-workbench
+  tag: ci
+  pullPolicy: Never
+
+relay:
+  mode: static
+  static:
+    upstreamUrl: http://cogito-api.invalid:8000
+    existingSecret: chart-validation-relay
+    tokenKey: token
+
+tests:
+  enabled: true

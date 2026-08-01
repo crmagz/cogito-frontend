@@ -90,7 +90,8 @@ npm run lint
 Tests are native Jest component and HTTP-integration tests. The reusable Forge
 workflow runs the same locked install, build, lint, typecheck, and test steps;
 the callable Helm workflow validates this chart with Helm 4 and strict
-Kubernetes schemas. Forge owns image publication and release creation.
+Kubernetes schemas, then builds, installs, and runs `helm test` in an
+ephemeral Kind cluster. Forge owns image publication and release creation.
 
 ## Browser E2E
 
