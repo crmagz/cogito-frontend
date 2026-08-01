@@ -40,7 +40,8 @@ jobs:
   helm:
     permissions:
       contents: read
-    uses: crmagz/forge/.github/workflows/validate-helm.yml@9066e6a484118095964bdd7ebdfea480ac3f1f4e
+    # Temporary integration ref. Move to the Forge release tag once PR #11 is released.
+    uses: crmagz/forge/.github/workflows/validate-helm.yml@feat/helm4-chart-validation
     with:
       chart-directory: chart
       values-files: |-
