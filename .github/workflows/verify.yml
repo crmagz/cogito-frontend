@@ -43,6 +43,7 @@ jobs:
     # Temporary integration ref. Move to the Forge release tag once PR #11 is released.
     uses: crmagz/forge/.github/workflows/validate-helm.yml@feat/helm4-chart-validation
     with:
+      forge-task-ref: feat/helm4-chart-validation
       chart-directory: chart
       values-files: |-
         chart/values.yaml
@@ -57,5 +58,6 @@ jobs:
       kind-values-files: |-
         chart/values.yaml
         chart/values-kind-validation.yaml
-      kind-bootstrap-script: |-
-        kubectl --namespace chart-validation create secret generic chart-validation-relay --from-literal=token=not-used
+      kind-test-secret-name: chart-validation-relay
+      kind-test-secret-key: token
+      kind-test-secret-value: not-used
