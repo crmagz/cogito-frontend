@@ -18,7 +18,16 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
   return { listProjects: async () => [{ project_id: "default" }], getHealth: async () => true, listRuns: async () => ({ runs: [run], revision: "runs", etag: "runs", unchanged: false }), getRun: async () => run, getTimeline: async () => ({ events, revision: "timeline", etag: "timeline", unchanged: false }), getEvidence: async () => ({ content: '{"title":"verified"}', sha256: digest }), decide: async () => undefined, ...overrides };
 }
 
-beforeEach(() => window.history.replaceState({}, "", "/"));
+beforeEach(() => { window.history.replaceState({}, "", "/"); window.localStorage.clear(); });
+
+test("migrates the legacy stored theme preference", async () => {
+  window.localStorage.setItem("cogito-workbench-theme", "dark");
+  render(<App client={client()} />);
+
+  expect(await screen.findByRole("heading", { name: "Mission Control" })).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "Theme" })).toHaveValue("dark");
+  expect(window.localStorage.getItem("workbench-theme")).toBe("dark");
+});
 
 test("presents Mission Control with filterable authoritative workflow identity", async () => {
   const user = userEvent.setup();

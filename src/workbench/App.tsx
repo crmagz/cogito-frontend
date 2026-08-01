@@ -35,7 +35,17 @@ function relativeTime(value: string) {
   return `${Math.floor(seconds / 3600)}h ago`;
 }
 function Kpi({ label, value }: { label: string; value: string | number }) { return <div className="kpi"><p>{label}</p><b>{value}</b></div>; }
-function readStoredTheme(): Theme { try { const value = window.localStorage.getItem("workbench-theme"); return value === "light" || value === "dark" || value === "system" ? value : "system"; } catch { return "system"; } }
+function parseTheme(value: string | null): Theme | null { return value === "light" || value === "dark" || value === "system" ? value : null; }
+function readStoredTheme(): Theme {
+  try {
+    const currentTheme = parseTheme(window.localStorage.getItem("workbench-theme"));
+    if (currentTheme) return currentTheme;
+    const legacyTheme = parseTheme(window.localStorage.getItem("cogito-workbench-theme"));
+    if (!legacyTheme) return "system";
+    window.localStorage.setItem("workbench-theme", legacyTheme);
+    return legacyTheme;
+  } catch { return "system"; }
+}
 function evidenceFor(run: Run, kind: Artifact["kind"]) { return run.artifacts.find((artifact) => artifact.kind === kind) ?? null; }
 function isWaiting(run: Run) { return run.active_gate !== null; }
 function filterRun(run: Run, filter: InboxFilter, search: string) {
