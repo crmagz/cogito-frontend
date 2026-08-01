@@ -21,9 +21,9 @@ jobs:
     with:
       working-directory: .
       node-version: "24"
-      tag-prefix: frontend/
+      tag-prefix: workbench/
       container-registry: ghcr
-      ghcr-repository: crmagz/cogito-workbench
+      ghcr-repository: crmagz/workbench
       dockerfile: Dockerfile
       platforms: linux/amd64,linux/arm64
       environment: ci
@@ -41,8 +41,8 @@ jobs:
         chart/values-validation.yaml
       kubernetes-version: "1.32.0"
       kind-test: true
-      kind-cluster-name: cogito-workbench-chart
-      kind-image: cogito-workbench:ci
+      kind-cluster-name: workbench-chart
+      kind-image: workbench:ci
       kind-dockerfile: Dockerfile
       kind-build-context: .
       kind-values-files: |-

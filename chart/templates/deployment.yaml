@@ -46,9 +46,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "cogito-workbench.fullname" . }}
+  name: {{ include "workbench.fullname" . }}
   labels:
-    {{- include "cogito-workbench.labels" . | nindent 4 }}
+    {{- include "workbench.labels" . | nindent 4 }}
 spec:
   revisionHistoryLimit: {{ .Values.deployment.revisionHistoryLimit }}
   minReadySeconds: {{ .Values.deployment.minReadySeconds }}
@@ -61,29 +61,29 @@ spec:
       maxUnavailable: {{ .Values.deployment.strategy.maxUnavailable }}
   selector:
     matchLabels:
-      {{- include "cogito-workbench.selectorLabels" . | nindent 6 }}
+      {{- include "workbench.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "cogito-workbench.selectorLabels" . | nindent 8 }}
+        {{- include "workbench.selectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
-        cogito.ai/image-reference: {{ include "cogito-workbench.image" . | quote }}
+        cogito.ai/image-reference: {{ include "workbench.image" . | quote }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
-      serviceAccountName: {{ include "cogito-workbench.serviceAccountName" . }}
+      serviceAccountName: {{ include "workbench.serviceAccountName" . }}
       terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- with .Values.deployment.topologySpreadConstraints }}
       {{- $constraints := deepCopy . }}
-      {{- $selectorLabels := include "cogito-workbench.selectorLabels" $ | fromYaml }}
+      {{- $selectorLabels := include "workbench.selectorLabels" $ | fromYaml }}
       {{- range $constraint := $constraints }}
       {{- $_ := set $constraint "labelSelector" (dict "matchLabels" $selectorLabels) }}
       {{- end }}
@@ -96,7 +96,7 @@ spec:
       {{- end }}
       containers:
         - name: workbench
-          image: {{ include "cogito-workbench.image" . | quote }}
+          image: {{ include "workbench.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

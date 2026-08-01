@@ -3,7 +3,7 @@ global:
 
 image:
   # The deployment pipeline supplies the immutable GHCR image, for example
-  # ghcr.io/crmagz/cogito-workbench.
+  # ghcr.io/crmagz/workbench.
   repository: ""
   tag: ""
   digest: ""

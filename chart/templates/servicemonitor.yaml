@@ -2,16 +2,16 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: {{ include "cogito-workbench.fullname" . }}
+  name: {{ include "workbench.fullname" . }}
   labels:
-    {{- include "cogito-workbench.labels" . | nindent 4 }}
+    {{- include "workbench.labels" . | nindent 4 }}
     {{- with .Values.serviceMonitor.additionalLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
   selector:
     matchLabels:
-      {{- include "cogito-workbench.selectorLabels" . | nindent 6 }}
+      {{- include "workbench.selectorLabels" . | nindent 6 }}
   endpoints:
     - port: http
       path: /metrics

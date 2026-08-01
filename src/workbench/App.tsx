@@ -35,7 +35,7 @@ function relativeTime(value: string) {
   return `${Math.floor(seconds / 3600)}h ago`;
 }
 function Kpi({ label, value }: { label: string; value: string | number }) { return <div className="kpi"><p>{label}</p><b>{value}</b></div>; }
-function readStoredTheme(): Theme { try { const value = window.localStorage.getItem("cogito-workbench-theme"); return value === "light" || value === "dark" || value === "system" ? value : "system"; } catch { return "system"; } }
+function readStoredTheme(): Theme { try { const value = window.localStorage.getItem("workbench-theme"); return value === "light" || value === "dark" || value === "system" ? value : "system"; } catch { return "system"; } }
 function evidenceFor(run: Run, kind: Artifact["kind"]) { return run.artifacts.find((artifact) => artifact.kind === kind) ?? null; }
 function isWaiting(run: Run) { return run.active_gate !== null; }
 function filterRun(run: Run, filter: InboxFilter, search: string) {
@@ -252,7 +252,7 @@ export function App({ client = apiClient }: { client?: ApiClient }) {
   useEffect(() => { if (!projectsLoaded || !routeRunId || selected?.run_id === routeRunId) return; let cancelled = false; void client.getRun(routeRunId).then((detail) => { if (!cancelled) { setRouteUnavailable(false); setSelected(detail); } }).catch(() => { if (!cancelled) setRouteUnavailable(true); }); return () => { cancelled = true; }; }, [client, projectsLoaded, routeRunId, selected?.run_id]);
   useEffect(() => { if (!projectsLoaded || selected) return; const timer = window.setInterval(() => void refresh(), 15_000); return () => window.clearInterval(timer); }, [projectsLoaded, refresh, selected]);
   useEffect(() => { if (!selected) return; void client.getRun(selected.run_id).then((detail) => setSelected((current) => current?.run_id === detail.run_id ? detail : current)).catch(() => setError("Unable to load the latest scoped run detail; showing the last verified summary.")); void refreshTimeline(selected.run_id); const timer = window.setInterval(() => { void client.getRun(selected.run_id).then((detail) => setSelected((current) => current?.run_id === detail.run_id ? detail : current)).catch(() => undefined); void refreshTimeline(selected.run_id); }, 15_000); return () => window.clearInterval(timer); }, [client, refreshTimeline, selected?.run_id]);
-  useEffect(() => { try { window.localStorage.setItem("cogito-workbench-theme", theme); } catch { /* preference storage is optional */ } }, [theme]);
+  useEffect(() => { try { window.localStorage.setItem("workbench-theme", theme); } catch { /* preference storage is optional */ } }, [theme]);
   useEffect(() => { const listener = () => { const current = readRoute(); routeRunIdRef.current = current.runId; setRouteRunId(current.runId); setRouteView(current.view); setNodeId(current.nodeId); setNodeTab(current.nodeTab); setTabState(current.tab); }; window.addEventListener("popstate", listener); return () => window.removeEventListener("popstate", listener); }, []);
   const openCanvas = (run: Run) => { setDecisionNotice(null); setRouteUnavailable(false); routeRunIdRef.current = run.run_id; setSelected(run); setRouteRunId(run.run_id); setRouteView("canvas"); setNodeId(null); window.history.pushState({}, "", canvasRoute(run)); };
   const setTab = (nextTab: DetailTab) => { setTabState(nextTab); if (selected) window.history.pushState({}, "", routeFor(selected, nextTab)); };

@@ -1,6 +1,6 @@
 # Ephemeral Kind integration settings used only by Forge's Helm 4 test job.
 image:
-  repository: cogito-workbench
+  repository: workbench
   tag: ci
   pullPolicy: Never
 

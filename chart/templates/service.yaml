@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "cogito-workbench.fullname" . }}
+  name: {{ include "workbench.fullname" . }}
   labels:
-    {{- include "cogito-workbench.labels" . | nindent 4 }}
+    {{- include "workbench.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -13,4 +13,4 @@ spec:
       protocol: TCP
       appProtocol: http
   selector:
-    {{- include "cogito-workbench.selectorLabels" . | nindent 4 }}
+    {{- include "workbench.selectorLabels" . | nindent 4 }}
