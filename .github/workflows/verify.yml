@@ -14,7 +14,7 @@ jobs:
   verify:
     # Immutable Forge feature revision. Replace with its released exact tag
     # after the Forge change merges.
-    uses: crmagz/forge/.github/workflows/build-node.yml@50bbf87de251bad7e7a5f77d545eb6742257791d
+    uses: crmagz/forge/.github/workflows/build-node.yml@496808c7704abae2a564cef5193890122d3e894e
     with:
       working-directory: .
       node-version: "24"
