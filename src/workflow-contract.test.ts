@@ -17,4 +17,7 @@ test("publishes the same GHCR image configured by the Helm chart", async () => {
   expect(workflow).not.toContain("ecr-repository:");
   expect(workflow).toContain("container-registry: ghcr");
   expect(workflow).toContain(`ghcr-repository: ${chartRepository?.replace(/^ghcr\.io\//, "")}`);
+  expect(workflow).toMatch(
+    /uses: crmagz\/forge\/\.github\/workflows\/build-node\.yml@releases\/v\d+\.\d+\.\d+/
+  );
 });
