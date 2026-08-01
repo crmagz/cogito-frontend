@@ -29,23 +29,40 @@ session relay is configured. Do not use a static upstream token in production.
 
 ## Container and Helm deployment
 
-The repository includes a non-root Node image and the `chart/` Helm chart. The
-production chart only accepts `relay.mode=session`, which forwards same-origin
-browser requests to an environment-owned OIDC session relay. It never accepts
-an API token in production. Set `relay.session.upstreamUrl` to that relay and
-use immutable image digests for a production deployment:
+The repository includes a non-root Node image and the `chart/` Helm chart.
+Production deployment requires Helm 4, an immutable image digest and release
+tag, TLS, an
+explicit session-relay readiness endpoint, and least-privilege NetworkPolicy
+rules. The chart rejects incomplete production settings during rendering. It
+only accepts `relay.mode=session`, which forwards same-origin browser requests
+to an environment-owned OIDC session relay; it never accepts an API token in
+production.
+
+Install Helm 4 (the project validates with Helm 4.2.3) and copy the production
+example to a protected environment-specific values file. Replace all blank and
+`.example.invalid` placeholders, including the ingress certificate, trusted
+ingress source, session relay, DNS, and monitoring selectors:
 
 ```sh
+cp chart/values-production.example.yaml /secure/path/workbench-production.yaml
+
 helm upgrade --install cogito-workbench chart/ \
   --namespace cogito --create-namespace \
   -f chart/values.yaml -f chart/values-production.yaml \
-  --set image.repository=$ECR_REGISTRY/cogito-frontend \
-  --set image.digest=sha256:<immutable-image-digest> \
-  --set relay.session.upstreamUrl=http://cogito-session-relay:8080
+  -f /secure/path/workbench-production.yaml \
+  --server-side=true --rollback-on-failure --wait --timeout 10m
 ```
+
+Run `helm test cogito-workbench --namespace cogito` after deployment. The test
+requires the NetworkPolicy to allow its labelled test Pod and DNS to reach the
+service. Enable the optional `serviceMonitor` only in clusters that have the
+Prometheus Operator CRD; it scrapes `/metrics` for relay response counts.
 
 The Forge callable Node workflow builds and publishes this image on `main` to
 the `cogito-frontend` ECR repository for both `linux/amd64` and `linux/arm64`.
+It is also the sole release authority: it calculates semantic versions, creates
+the `frontend/v*` tag, and creates GitHub releases. The old repository-specific
+release workflow was removed to prevent competing tag/release pipelines.
 
 For local Kind validation only, the ignored `.claude/Makefile` builds the image,
 loads it into Kind, deploys a static-token relay that reads the existing cluster
@@ -58,6 +75,8 @@ make -f .claude/Makefile port-forward
 
 Open `http://127.0.0.1:8001`. The static-token mode is rejected when
 `global.production=true` and must not be used outside local development.
+The local Makefile requires Helm 4 and is intentionally ignored because it
+contains local cluster wiring, not deployable production configuration.
 
 ## Validation
 
@@ -70,9 +89,8 @@ npm run lint
 
 Tests are native Jest component and HTTP-integration tests. The reusable Forge
 workflow runs the same locked install, build, lint, typecheck, and test steps;
-it has no ECR or CodeArtifact publish target for this repository. The release
-workflow builds qualifying conventional-commit changes on `main`, then creates
-the matching `frontend/vX.Y.Z` tag and GitHub release through Forge.
+the callable Helm workflow validates this chart with Helm 4 and strict
+Kubernetes schemas. Forge owns image publication and release creation.
 
 ## Browser E2E
 

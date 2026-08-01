@@ -5,13 +5,11 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
-
 jobs:
-  verify:
+  verify-pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1
     with:
       working-directory: .
@@ -23,3 +21,30 @@ jobs:
       # Forge owns validation, semantic versioning, image publishing, and
       # release creation for this repository.
       environment: ci
+
+  verify-main:
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+      id-token: write
+    uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1
+    with:
+      working-directory: .
+      node-version: "24"
+      tag-prefix: frontend/
+      ecr-repository: cogito-frontend
+      dockerfile: Dockerfile
+      platforms: linux/amd64,linux/arm64
+      environment: ci
+
+  helm:
+    permissions:
+      contents: read
+    uses: crmagz/forge/.github/workflows/validate-helm.yml@20a15c87dfd1cdc3cfdd5b1fb4fd0dc8552dc26f
+    with:
+      chart-directory: chart
+      values-files: |-
+        chart/values.yaml
+        chart/values-production.yaml
+        chart/values-validation.yaml
+      kubernetes-version: "1.32.0"

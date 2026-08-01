@@ -142,6 +142,65 @@ test("production server serves health locally and forwards only allowlisted sess
   expect(upstream).toHaveBeenCalledWith(new URL("https://session.example.test/api/v1/workbench/runs/run-123/timeline"), expect.anything());
 });
 
+test("preserves each session cookie and uses the session relay readiness endpoint", async () => {
+  const upstream = jest.fn(async (url: URL): Promise<Response> => {
+    if (url.pathname === "/ready") return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    const headers = new Headers();
+    headers.append("set-cookie", "session=renewed; Path=/; HttpOnly; Secure");
+    headers.append("set-cookie", "csrf=verified; Path=/; Secure");
+    return new Response(JSON.stringify({ items: [] }), { status: 200, headers });
+  });
+  const app = createProductionServer({
+    sessionRelayUrl: "https://session.example.test",
+    readinessUrl: "https://session.example.test/ready",
+    staticDirectory: new URL("../dist", import.meta.url).pathname,
+    fetchImpl: upstream as unknown as typeof fetch
+  });
+  const server = app.listen(0, "127.0.0.1");
+  const origin = await listen(server);
+
+  const ready = await fetch(`${origin}/readyz`);
+  const inventory = await fetch(`${origin}/api/cogito/api/v1/workbench/runs`);
+  await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+
+  expect(ready.status).toBe(200);
+  expect(await ready.json()).toEqual({ status: "ready" });
+  expect(inventory.headers.getSetCookie()).toEqual([
+    "session=renewed; Path=/; HttpOnly; Secure",
+    "csrf=verified; Path=/; Secure"
+  ]);
+  expect(upstream).toHaveBeenCalledWith(new URL("https://session.example.test/ready"), expect.anything());
+});
+
+test("fails readiness for an unavailable relay and returns a bounded timeout response", async () => {
+  const timeout = jest.fn(async (_url: URL, init: RequestInit): Promise<Response> => new Promise((_resolve, reject) => {
+    init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+  }));
+  const app = createProductionServer({
+    sessionRelayUrl: "https://session.example.test",
+    staticDirectory: new URL("../dist", import.meta.url).pathname,
+    fetchImpl: timeout as unknown as typeof fetch,
+    upstreamTimeoutMs: 1
+  });
+  const server = app.listen(0, "127.0.0.1");
+  const origin = await listen(server);
+
+  const ready = await fetch(`${origin}/readyz`);
+  const inventory = await fetch(`${origin}/api/cogito/api/v1/workbench/runs`);
+  await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+
+  expect(ready.status).toBe(503);
+  expect(inventory.status).toBe(504);
+  await expect(inventory.json()).resolves.toEqual({ detail: "Workbench relay upstream request timed out." });
+});
+
+test("refuses a readiness endpoint outside the session relay origin", () => {
+  expect(() => createSessionRelay({
+    sessionRelayUrl: "https://session.example.test",
+    readinessUrl: "https://attacker.example.test/healthz"
+  })).toThrow("COGITO_SESSION_RELAY_READY_URL");
+});
+
 test("serves the single-page application for a deep run link without masking API routes", async () => {
   const staticDirectory = await mkdtemp(path.join(tmpdir(), "cogito-relay-static-"));
   await writeFile(path.join(staticDirectory, "index.html"), "<!doctype html><title>Cogito Operator Workbench</title>");
@@ -181,9 +240,11 @@ test("can expose local process health for packaged static-token development", as
   const origin = await listen(server);
 
   const health = await fetch(`${origin}/healthz`);
+  const ready = await fetch(`${origin}/readyz`);
   await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
 
   expect(health.status).toBe(200);
+  expect(ready.status).toBe(200);
 });
 
 test("forwards only the fixed health and project inventory reads", async () => {
@@ -225,4 +286,21 @@ test("returns a sanitized 502 when the configured upstream is unreachable", asyn
   await expect(response.json()).resolves.toEqual({
     detail: "Workbench relay cannot reach the configured API. Verify the local API URL and port-forward."
   });
+});
+
+test("exposes relay response counters without exposing upstream credentials", async () => {
+  const app = createRelay({
+    upstreamUrl: "https://api.example.test",
+    token: "server-only-token",
+    fetchImpl: (async () => new Response(JSON.stringify({ items: [] }), { status: 200 })) as typeof fetch
+  });
+  const server = app.listen(0, "127.0.0.1");
+  const origin = await listen(server);
+
+  await fetch(`${origin}/api/cogito/api/v1/workbench/runs`);
+  const metrics = await fetch(`${origin}/metrics`);
+  await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+
+  expect(metrics.status).toBe(200);
+  expect(await metrics.text()).toContain('cogito_workbench_requests_total{method="GET",status="200"} 1');
 });

@@ -1,0 +1,62 @@
+# Deterministic non-secret values used by Forge's Helm 4 chart validation.
+global:
+  production: true
+
+image:
+  repository: registry.example.test/cogito-workbench
+  tag: 0.2.0
+  digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+relay:
+  session:
+    upstreamUrl: http://cogito-session-relay.cogito.svc.cluster.local:8080
+    readinessUrl: http://cogito-session-relay.cogito.svc.cluster.local:8080/healthz
+
+ingress:
+  annotations:
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/01234567-89ab-cdef-0123-456789abcdef
+  hosts:
+    - host: workbench.cogito.internal
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: cogito-workbench-tls
+      hosts:
+        - workbench.cogito.internal
+
+networkPolicy:
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: test
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cogito
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cogito-session-relay
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

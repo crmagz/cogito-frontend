@@ -5,7 +5,7 @@ image:
   # The deployment pipeline supplies its ECR registry/repository, for example
   # 123456789012.dkr.ecr.us-east-1.amazonaws.com/cogito-frontend.
   repository: ""
-  tag: "v0.1.0"
+  tag: ""
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -15,15 +15,32 @@ relay:
   # and obtains API credentials. This must not be the Cogito API directly.
   session:
     upstreamUrl: ""
+    readinessUrl: ""
 
 autoscaling:
   enabled: true
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 3
+  maxReplicas: 12
   targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+deployment:
+  topologySpreadConstraints:
+    - maxSkew: 1
+      minDomains: 3
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
 
 networkPolicy:
   enabled: true
+  ingress: []
+  egress: []
 
 ingress:
   enabled: true
@@ -31,9 +48,6 @@ ingress:
   annotations:
     alb.ingress.kubernetes.io/scheme: internal
     alb.ingress.kubernetes.io/target-type: ip
-  hosts:
-    - host: workbench.internal.example.com
-      paths:
-        - path: /
-          pathType: Prefix
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+  hosts: []
   tls: []
