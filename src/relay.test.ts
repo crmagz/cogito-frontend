@@ -1,6 +1,9 @@
 /** @jest-environment node */
 
 import type { Server } from "node:http";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { jest } from "@jest/globals";
 
 import { createDevelopmentServer, createProductionServer, createRelay, createSessionRelay } from "../server.mjs";
@@ -140,25 +143,31 @@ test("production server serves health locally and forwards only allowlisted sess
 });
 
 test("serves the single-page application for a deep run link without masking API routes", async () => {
+  const staticDirectory = await mkdtemp(path.join(tmpdir(), "cogito-relay-static-"));
+  await writeFile(path.join(staticDirectory, "index.html"), "<!doctype html><title>Cogito Operator Workbench</title>");
   const app = createDevelopmentServer({
     upstreamUrl: "https://api.example.test",
     token: "server-only-token",
-    staticDirectory: new URL("../dist", import.meta.url).pathname
+    staticDirectory
   });
   const server = app.listen(0, "127.0.0.1");
-  const origin = await listen(server);
+  try {
+    const origin = await listen(server);
 
-  const detail = await fetch(`${origin}/runs/run-123/summary`);
-  const api = await fetch(`${origin}/api/unknown`);
-  const apiRoot = await fetch(`${origin}/api`);
-  const health = await fetch(`${origin}/healthz`);
-  await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+    const detail = await fetch(`${origin}/runs/run-123/summary`);
+    const api = await fetch(`${origin}/api/unknown`);
+    const apiRoot = await fetch(`${origin}/api`);
+    const health = await fetch(`${origin}/healthz`);
 
-  expect(detail.status).toBe(200);
-  expect(await detail.text()).toContain("Cogito Operator Workbench");
-  expect(api.status).toBe(404);
-  expect(apiRoot.status).toBe(404);
-  expect(health.status).toBe(404);
+    expect(detail.status).toBe(200);
+    expect(await detail.text()).toContain("Cogito Operator Workbench");
+    expect(api.status).toBe(404);
+    expect(apiRoot.status).toBe(404);
+    expect(health.status).toBe(404);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
+    await rm(staticDirectory, { recursive: true, force: true });
+  }
 });
 
 test("can expose local process health for packaged static-token development", async () => {
