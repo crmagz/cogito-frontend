@@ -40,7 +40,7 @@ jobs:
   helm:
     permissions:
       contents: read
-    uses: crmagz/forge/.github/workflows/validate-helm.yml@20a15c87dfd1cdc3cfdd5b1fb4fd0dc8552dc26f
+    uses: crmagz/forge/.github/workflows/validate-helm.yml@9066e6a484118095964bdd7ebdfea480ac3f1f4e
     with:
       chart-directory: chart
       values-files: |-
@@ -48,3 +48,13 @@ jobs:
         chart/values-production.yaml
         chart/values-validation.yaml
       kubernetes-version: "1.32.0"
+      kind-test: true
+      kind-cluster-name: cogito-workbench-chart
+      kind-image: cogito-workbench:ci
+      kind-dockerfile: Dockerfile
+      kind-build-context: .
+      kind-values-files: |-
+        chart/values.yaml
+        chart/values-kind-validation.yaml
+      kind-bootstrap-script: |-
+        kubectl --namespace chart-validation create secret generic chart-validation-relay --from-literal=token=not-used
