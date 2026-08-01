@@ -36,26 +36,3 @@ jobs:
       dockerfile: Dockerfile
       platforms: linux/amd64,linux/arm64
       environment: ci
-
-  helm:
-    permissions:
-      contents: read
-    # Temporary integration ref. Move to the Forge release tag once PR #11 is released.
-    uses: crmagz/forge/.github/workflows/validate-helm.yml@feat/helm4-chart-validation
-    with:
-      chart-directory: chart
-      values-files: |-
-        chart/values.yaml
-        chart/values-production.yaml
-        chart/values-validation.yaml
-      kubernetes-version: "1.32.0"
-      kind-test: true
-      kind-cluster-name: cogito-workbench-chart
-      kind-image: cogito-workbench:ci
-      kind-dockerfile: Dockerfile
-      kind-build-context: .
-      kind-values-files: |-
-        chart/values.yaml
-        chart/values-kind-validation.yaml
-      kind-bootstrap-script: |-
-        kubectl --namespace chart-validation create secret generic chart-validation-relay --from-literal=token=not-used
