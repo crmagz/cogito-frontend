@@ -110,6 +110,13 @@ test("operator decision refreshes a browser-rendered authoritative Workflow Canv
   try {
     await page.goto(frontendOrigin);
     await expect(page.getByRole("heading", { name: "Mission Control" })).toBeVisible();
+    await page.goto(`${frontendOrigin}/runs/run-browser-e2e/plan`);
+    await expect(page.getByRole("heading", { name: "Run detail" })).toBeVisible();
+    await expect(page.getByText(digest, { exact: true })).toBeVisible();
+    await page.locator(".artifact-list").getByRole("button", { name: /plan/i }).click();
+    await expect(page.getByLabel("Verified evidence")).toHaveText("{}");
+
+    await page.goto(frontendOrigin);
     await page.getByText("run-browser-e2e", { exact: true }).click();
     await expect(page.getByRole("heading", { name: "planning-run-browser-e2e-revision-1" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Focus Plan approval" })).toHaveAttribute("aria-pressed", "true");

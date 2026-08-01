@@ -107,9 +107,12 @@ npm run test:e2e
 ```
 
 The opt-in Kind browser test remains in the repository test suite rather than
-in an operator script. It requires a locally forwarded API, a non-production
-development token, and the identifier of an existing scoped run with plan
-evidence. It is read-only unless `COGITO_E2E_DECISION=request_revision` is set:
+in an operator script. Its read-only path requires a locally forwarded API, a
+non-production development token, and the identifier of an existing scoped
+run. A separate mutable path requires a disposable run that is awaiting *plan*
+approval and the exact plan-artifact digest; it verifies the displayed evidence
+before submitting a revision. It is read-only unless
+`COGITO_KIND_E2E_DECISION=request_revision` is set:
 
 ```sh
 COGITO_KIND_E2E=1 \
@@ -119,6 +122,18 @@ COGITO_E2E_RUN_ID=<run-id> \
 npm run test:e2e:kind
 ```
 
+To exercise the waiting-gate acceptance path, use a disposable run and set all
+of the following in addition to the upstream values:
+
+```sh
+COGITO_KIND_E2E=1 \
+COGITO_E2E_WAITING_PLAN_RUN_ID=<waiting-plan-run-id> \
+COGITO_E2E_PLAN_SHA256=<64-hex-plan-digest> \
+COGITO_KIND_E2E_DECISION=request_revision \
+npm run test:e2e:kind
+```
+
 Use a separate terminal for the local API forwarding command shown above. The
 test never reads cluster credentials or passes the relay token to browser
-JavaScript.
+JavaScript. The mutable command requests a revision and therefore changes the
+specified disposable run.
