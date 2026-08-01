@@ -12,10 +12,6 @@ permissions:
 
 jobs:
   verify:
-    # Immutable Forge build workflow release.
-    # GitHub validates every reachable job in a reusable workflow before it
-    # evaluates job conditions. Forge also supports OIDC-backed AWS publishing,
-    # so this caller must explicitly permit its optional OIDC job to exist.
     permissions:
       contents: write
       pull-requests: write
@@ -30,8 +26,6 @@ jobs:
       ghcr-repository: crmagz/cogito-workbench
       dockerfile: Dockerfile
       platforms: linux/amd64,linux/arm64
-      # Forge owns validation, semantic versioning, image publishing, and
-      # release creation for this repository.
       environment: ci
 
   helm:
@@ -39,7 +33,6 @@ jobs:
       contents: read
     uses: crmagz/forge/.github/workflows/validate-helm.yml@helm/v1
     with:
-      # Keep the Taskfile source aligned with the callable workflow release.
       forge-task-ref: helm/v1
       chart-directory: chart
       values-files: |-
