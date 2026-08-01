@@ -9,9 +9,9 @@ spec:
   podSelector:
     matchLabels:
       {{- include "cogito-workbench.selectorLabels" . | nindent 6 }}
-  policyTypes: ["Ingress"]
+  policyTypes: ["Ingress", "Egress"]
   ingress:
-    - ports:
-        - protocol: TCP
-          port: http
+    {{- toYaml .Values.networkPolicy.ingress | nindent 4 }}
+  egress:
+    {{- toYaml .Values.networkPolicy.egress | nindent 4 }}
 {{- end }}

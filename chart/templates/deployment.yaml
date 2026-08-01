@@ -5,8 +5,43 @@
 {{- if and .Values.global.production (not .Values.image.digest) }}
 {{- fail "image.digest is required when global.production=true" }}
 {{- end }}
+{{- if and .Values.global.production (not .Values.image.tag) }}
+{{- fail "image.tag is required with image.digest when global.production=true for release traceability" }}
+{{- end }}
 {{- if and (ne $mode "session") (ne $mode "static") }}
 {{- fail "relay.mode must be session or static" }}
+{{- end }}
+{{- if and .Values.global.production (not .Values.ingress.enabled) }}
+{{- fail "ingress.enabled=true is required when global.production=true" }}
+{{- end }}
+{{- if and .Values.global.production (eq (len .Values.ingress.hosts) 0) }}
+{{- fail "at least one ingress host is required when global.production=true" }}
+{{- end }}
+{{- if and .Values.global.production (eq (len .Values.ingress.tls) 0) }}
+{{- fail "ingress.tls is required when global.production=true" }}
+{{- end }}
+{{- if .Values.global.production }}
+{{- range .Values.ingress.hosts }}
+{{- $host := required "each production ingress host requires host" .host }}
+{{- if or (hasSuffix ".example.com" $host) (hasSuffix ".example.invalid" $host) }}
+{{- fail "placeholder ingress hosts are not permitted when global.production=true" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and .Values.global.production (eq .Values.ingress.className "alb") }}
+{{- $_ := required "alb.ingress.kubernetes.io/certificate-arn is required when global.production=true" (index .Values.ingress.annotations "alb.ingress.kubernetes.io/certificate-arn") }}
+{{- end }}
+{{- if and .Values.global.production (not .Values.relay.session.readinessUrl) }}
+{{- fail "relay.session.readinessUrl is required when global.production=true" }}
+{{- end }}
+{{- if and .Values.global.production (not .Values.networkPolicy.enabled) }}
+{{- fail "networkPolicy.enabled=true is required when global.production=true" }}
+{{- end }}
+{{- if and .Values.global.production (eq (len .Values.networkPolicy.ingress) 0) }}
+{{- fail "networkPolicy.ingress must restrict trusted production callers" }}
+{{- end }}
+{{- if and .Values.global.production (eq (len .Values.networkPolicy.egress) 0) }}
+{{- fail "networkPolicy.egress must restrict production dependencies" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -15,7 +50,15 @@ metadata:
   labels:
     {{- include "cogito-workbench.labels" . | nindent 4 }}
 spec:
+  revisionHistoryLimit: {{ .Values.deployment.revisionHistoryLimit }}
+  minReadySeconds: {{ .Values.deployment.minReadySeconds }}
+  progressDeadlineSeconds: {{ .Values.deployment.progressDeadlineSeconds }}
   replicas: {{ if .Values.autoscaling.enabled }}{{ .Values.autoscaling.minReplicas }}{{ else }}{{ .Values.replicaCount }}{{ end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.deployment.strategy.maxSurge }}
+      maxUnavailable: {{ .Values.deployment.strategy.maxUnavailable }}
   selector:
     matchLabels:
       {{- include "cogito-workbench.selectorLabels" . | nindent 6 }}
@@ -26,15 +69,27 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.podAnnotations }}
       annotations:
+        cogito.ai/image-reference: {{ include "cogito-workbench.image" . | quote }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
     spec:
       automountServiceAccountToken: false
+      enableServiceLinks: false
       serviceAccountName: {{ include "cogito-workbench.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.deployment.topologySpreadConstraints }}
+      {{- $constraints := deepCopy . }}
+      {{- $selectorLabels := include "cogito-workbench.selectorLabels" $ | fromYaml }}
+      {{- range $constraint := $constraints }}
+      {{- $_ := set $constraint "labelSelector" (dict "matchLabels" $selectorLabels) }}
+      {{- end }}
+      topologySpreadConstraints:
+        {{- toYaml $constraints | nindent 8 }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -49,9 +104,13 @@ spec:
           env:
             - name: COGITO_RELAY_MODE
               value: {{ $mode | quote }}
+            - name: COGITO_UPSTREAM_TIMEOUT_MS
+              value: {{ .Values.relay.upstreamTimeoutMs | quote }}
             {{- if eq $mode "session" }}
             - name: COGITO_SESSION_RELAY_URL
               value: {{ required "relay.session.upstreamUrl is required for session mode" .Values.relay.session.upstreamUrl | quote }}
+            - name: COGITO_SESSION_RELAY_READY_URL
+              value: {{ default "" .Values.relay.session.readinessUrl | quote }}
             {{- else }}
             - name: COGITO_UPSTREAM_URL
               value: {{ required "relay.static.upstreamUrl is required for static mode" .Values.relay.static.upstreamUrl | quote }}
@@ -69,9 +128,16 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 3
             failureThreshold: 3
-          readinessProbe:
+          startupProbe:
             httpGet:
               path: /healthz
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
               port: http
             initialDelaySeconds: 3
             periodSeconds: 10

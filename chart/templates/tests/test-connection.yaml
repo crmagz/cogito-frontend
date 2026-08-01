@@ -1,0 +1,46 @@
+{{- if .Values.tests.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cogito-workbench.fullname" . }}-connection
+  labels:
+    {{- include "cogito-workbench.labels" . | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "cogito-workbench.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: test
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: connection
+          image: {{ .Values.tests.image | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --fail
+            - --silent
+            - --show-error
+            - --retry
+            - "5"
+            - --retry-connrefused
+            - http://{{ include "cogito-workbench.fullname" . }}:{{ .Values.service.port }}/healthz
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+{{- end }}

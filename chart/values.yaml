@@ -3,7 +3,7 @@ replicaCount: 2
 image:
   repository: ghcr.io/crmagz/cogito-workbench
   # Development-only fallback. Production requires image.digest.
-  tag: "latest"
+  tag: "0.1.0"
   digest: ""
   pullPolicy: IfNotPresent
 
@@ -25,6 +25,7 @@ podSecurityContext:
   runAsGroup: 1000
   seccompProfile:
     type: RuntimeDefault
+  fsGroupChangePolicy: OnRootMismatch
 
 securityContext:
   allowPrivilegeEscalation: false
@@ -44,11 +45,36 @@ resources:
     cpu: 500m
     memory: 256Mi
 
+deployment:
+  revisionHistoryLimit: 10
+  minReadySeconds: 10
+  progressDeadlineSeconds: 300
+  terminationGracePeriodSeconds: 35
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 0
+  topologySpreadConstraints: []
+
 autoscaling:
   enabled: false
   minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 75
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
 
 podDisruptionBudget:
   enabled: true
@@ -68,6 +94,9 @@ relay:
   mode: session
   session:
     upstreamUrl: ""
+    # Must resolve to the same origin as upstreamUrl. Defaults to /healthz.
+    readinessUrl: ""
+  upstreamTimeoutMs: 10000
   static:
     upstreamUrl: ""
     existingSecret: ""
@@ -75,6 +104,20 @@ relay:
 
 networkPolicy:
   enabled: false
+  # Explicitly enumerate trusted ingress and required egress peers. In
+  # production both lists are mandatory to avoid an accidental allow-all rule.
+  ingress: []
+  egress: []
+
+tests:
+  enabled: true
+  image: curlimages/curl@sha256:4026b29997dc7c823b51c164b71e2b51e0fd95cce4601f78202c513d97da2922
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  additionalLabels: {}
 
 global:
   production: false

@@ -1,0 +1,63 @@
+# Copy this file outside source control, replace every placeholder, and layer it
+# after values.yaml and values-production.yaml. Rendering rejects empty values.
+image:
+  repository: ""
+  digest: ""
+
+relay:
+  session:
+    upstreamUrl: ""
+    readinessUrl: ""
+
+ingress:
+  annotations:
+    alb.ingress.kubernetes.io/certificate-arn: ""
+  hosts:
+    - host: workbench.example.invalid
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: cogito-workbench-tls
+      hosts:
+        - workbench.example.invalid
+
+# Restrict traffic to the installed ingress and session relay. Adapt selectors to
+# the cluster's actual labels and add the monitoring/test callers when enabled.
+networkPolicy:
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cogito
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cogito-session-relay
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack
