@@ -23,3 +23,28 @@ jobs:
       # Forge owns validation, semantic versioning, image publishing, and
       # release creation for this repository.
       environment: ci
+
+  helm:
+    permissions:
+      contents: read
+    uses: crmagz/forge/.github/workflows/validate-helm.yml@helm/v1
+    with:
+      # Keep the Taskfile source aligned with the callable workflow release.
+      forge-task-ref: helm/v1
+      chart-directory: chart
+      values-files: |-
+        chart/values.yaml
+        chart/values-production.yaml
+        chart/values-validation.yaml
+      kubernetes-version: "1.32.0"
+      kind-test: true
+      kind-cluster-name: cogito-workbench-chart
+      kind-image: cogito-workbench:ci
+      kind-dockerfile: Dockerfile
+      kind-build-context: .
+      kind-values-files: |-
+        chart/values.yaml
+        chart/values-kind-validation.yaml
+      kind-test-secret-name: chart-validation-relay
+      kind-test-secret-key: token
+      kind-test-secret-value: not-used
