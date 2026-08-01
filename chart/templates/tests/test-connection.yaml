@@ -2,9 +2,9 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "cogito-workbench.fullname" . }}-connection
+  name: {{ include "workbench.fullname" . }}-connection
   labels:
-    {{- include "cogito-workbench.labels" . | nindent 4 }}
+    {{- include "workbench.labels" . | nindent 4 }}
     app.kubernetes.io/component: test
   annotations:
     "helm.sh/hook": test
@@ -15,7 +15,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "cogito-workbench.selectorLabels" . | nindent 8 }}
+        {{- include "workbench.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: test
     spec:
       automountServiceAccountToken: false
@@ -37,7 +37,7 @@ spec:
             - --retry
             - "5"
             - --retry-connrefused
-            - http://{{ include "cogito-workbench.fullname" . }}:{{ .Values.service.port }}/healthz
+            - http://{{ include "workbench.fullname" . }}:{{ .Values.service.port }}/healthz
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

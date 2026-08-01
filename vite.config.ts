@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       {
-        name: "cogito-workbench-relay",
+        name: "workbench-relay",
         async configureServer(server) {
           const { createRelay } = await import("./server.mjs");
           server.middlewares.use(

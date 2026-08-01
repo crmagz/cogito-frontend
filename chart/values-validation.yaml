@@ -3,7 +3,7 @@ global:
   production: true
 
 image:
-  repository: registry.example.test/cogito-workbench
+  repository: registry.example.test/workbench
   tag: 0.2.0
   digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
@@ -21,7 +21,7 @@ ingress:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: cogito-workbench-tls
+    - secretName: workbench-tls
       hosts:
         - workbench.cogito.internal
 

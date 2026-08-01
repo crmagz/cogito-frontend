@@ -46,23 +46,23 @@ ingress source, session relay, DNS, and monitoring selectors:
 ```sh
 cp chart/values-production.example.yaml /secure/path/workbench-production.yaml
 
-helm upgrade --install cogito-workbench chart/ \
+helm upgrade --install workbench chart/ \
   --namespace cogito --create-namespace \
   -f chart/values.yaml -f chart/values-production.yaml \
   -f /secure/path/workbench-production.yaml \
   --server-side=true --rollback-on-failure --wait --timeout 10m
 ```
 
-Run `helm test cogito-workbench --namespace cogito` after deployment. The test
+Run `helm test workbench --namespace cogito` after deployment. The test
 requires the NetworkPolicy to allow its labelled test Pod and DNS to reach the
 service. Enable the optional `serviceMonitor` only in clusters that have the
 Prometheus Operator CRD; it scrapes `/metrics` for relay response counts.
 
 The Forge callable Node workflow builds and publishes this image on `main` to
-`ghcr.io/crmagz/cogito-workbench` for both `linux/amd64` and `linux/arm64`.
+`ghcr.io/crmagz/workbench` for both `linux/amd64` and `linux/arm64`.
 It uses the repository-scoped ephemeral GitHub token with package publishing
 permission rather than AWS credentials. Forge is also the sole release
-authority: it calculates semantic versions, creates the `frontend/v*` tag, and
+authority: it calculates semantic versions, creates the `workbench/v*` tag, and
 creates GitHub releases. The old repository-specific release workflow was
 removed to prevent competing tag/release pipelines.
 

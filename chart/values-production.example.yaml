@@ -18,7 +18,7 @@ ingress:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: cogito-workbench-tls
+    - secretName: workbench-tls
       hosts:
         - workbench.example.invalid
 

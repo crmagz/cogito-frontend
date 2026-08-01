@@ -1,37 +1,37 @@
-{{- define "cogito-workbench.name" -}}
+{{- define "workbench.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "cogito-workbench.fullname" -}}
+{{- define "workbench.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
-{{- printf "%s-%s" .Release.Name (include "cogito-workbench.name" .) | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-%s" .Release.Name (include "workbench.name" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
 
-{{- define "cogito-workbench.labels" -}}
-app.kubernetes.io/name: {{ include "cogito-workbench.name" . }}
+{{- define "workbench.labels" -}}
+app.kubernetes.io/name: {{ include "workbench.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ default .Chart.AppVersion .Values.image.tag | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- end }}
 
-{{- define "cogito-workbench.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "cogito-workbench.name" . }}
+{{- define "workbench.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "workbench.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{- define "cogito-workbench.serviceAccountName" -}}
+{{- define "workbench.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "cogito-workbench.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "workbench.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- required "serviceAccount.name is required when serviceAccount.create=false" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
-{{- define "cogito-workbench.image" -}}
+{{- define "workbench.image" -}}
 {{- $repository := required "image.repository is required" .Values.image.repository }}
 {{- if .Values.image.digest }}
 {{- printf "%s@%s" $repository .Values.image.digest }}

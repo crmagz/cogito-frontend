@@ -2,9 +2,9 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "cogito-workbench.fullname" . }}
+  name: {{ include "workbench.fullname" . }}
   labels:
-    {{- include "cogito-workbench.labels" . | nindent 4 }}
+    {{- include "workbench.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -27,7 +27,7 @@ spec:
             pathType: {{ .pathType }}
             backend:
               service:
-                name: {{ include "cogito-workbench.fullname" $ }}
+                name: {{ include "workbench.fullname" $ }}
                 port:
                   name: http
           {{- end }}
