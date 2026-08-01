@@ -13,6 +13,14 @@ permissions:
 jobs:
   verify:
     # Immutable Forge build workflow release.
+    # GitHub validates every reachable job in a reusable workflow before it
+    # evaluates job conditions. Forge also supports OIDC-backed AWS publishing,
+    # so this caller must explicitly permit its optional OIDC job to exist.
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: write
+      id-token: write
     uses: crmagz/forge/.github/workflows/build-node.yml@releases/v1.1.1
     with:
       working-directory: .
