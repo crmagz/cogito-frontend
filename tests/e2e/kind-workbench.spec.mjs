@@ -86,7 +86,6 @@ test("records a non-executable note against a real source specification", async 
     await page.getByLabel("Context for reviewers").fill("Kind browser validation note.");
     await page.getByRole("button", { name: "Record context" }).click();
     await expect(page.getByText(/use Request revision when the work itself needs to change/)).toBeVisible();
-    await page.getByRole("button", { name: "Load recorded context" }).click();
     await expect(page.getByText(/Kind browser validation note\./)).toBeVisible();
   } finally {
     await close(server);
