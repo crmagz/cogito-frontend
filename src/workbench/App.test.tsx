@@ -12,7 +12,7 @@ const run: Run = {
   artifacts: [{ kind: "source", sha256: digest }, { kind: "plan", sha256: digest }], stages, workflow_graph: { nodes: stages.map((stage) => ({ ...stage, node_type: stage.stage_id.includes("approval") ? "gate" : stage.stage_id === "specification" ? "queue" : "agent" })), edges: [{ source_node_id: "specification", target_node_id: "planning", style: "solid", emphasis: "primary" }, { source_node_id: "planning", target_node_id: "plan_approval", style: "solid", emphasis: "primary" }, { source_node_id: "plan_approval", target_node_id: "implementation", style: "solid", emphasis: "primary" }, { source_node_id: "implementation", target_node_id: "implementation_approval", style: "solid", emphasis: "primary" }] }, abilities: ["view", "approve"], workflow: ["planning", "plan", "plan_approval"],
   budget: { max_cost_usd: 3, max_wall_clock_minutes: 45, max_review_rounds: 2, actual_cost_usd: null, turns_used: null }, approval_history_available: true, approval_history: [], execution: null, external_links: []
 };
-const events: TimelineEvent[] = [{ event_id: "event-1", event_type: "plan.awaiting_approval", occurred_at: "2026-07-26T00:00:00Z", stage_id: "plan_approval", gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }];
+const events: TimelineEvent[] = [{ event_id: "event-1", event_type: "plan.awaiting_approval", occurred_at: "2026-07-26T00:00:00Z", stage_id: "plan_approval", stage_ids: ["planning", "plan_approval"], gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }];
 
 function client(overrides: Partial<ApiClient> = {}): ApiClient {
   return { listProjects: async () => [{ project_id: "default" }], getHealth: async () => true, listRuns: async () => ({ runs: [run], revision: "runs", etag: "runs", unchanged: false }), getRun: async () => run, getTimeline: async () => ({ events, revision: "timeline", etag: "timeline", unchanged: false }), getEvidence: async () => ({ content: '{"title":"verified"}', sha256: digest }), getFeedback: async () => [], recordFeedback: async () => ({ feedback_id: "feedback-1", run_id: run.run_id, intent: "note", artifact_sha256: digest, stage_id: "planning", actor_id: "operator", comment: "Recorded note", created_at: "2026-08-02T00:00:00Z" }), decide: async () => undefined, ...overrides };
@@ -95,6 +95,18 @@ test("distinguishes authoritative audit activity from verified specifications", 
   expect(screen.getAllByText(digest.slice(0, 12))).toHaveLength(2);
 });
 
+test("shows a server-attributed transition in the Planning dossier audit and overview", async () => {
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("button", { name: "Focus Planning" }));
+  await user.click(screen.getByRole("tab", { name: "Overview" }));
+  expect(await screen.findByText("plan.awaiting approval")).toBeVisible();
+  await user.click(screen.getByRole("tab", { name: "Audit activity" }));
+  expect(screen.getByText("plan.awaiting approval")).toBeVisible();
+});
+
 test("renders verified plan phases and acceptance criteria for product review", async () => {
   const user = userEvent.setup();
   const plan = JSON.stringify({
@@ -117,6 +129,21 @@ test("renders verified plan phases and acceptance criteria for product review", 
   expect(screen.getByText("Rate limiter")).toBeVisible();
   expect(screen.getAllByText(/Requests over the limit receive a clear response/)).toHaveLength(2);
   expect(screen.getByLabelText("Verified evidence")).toHaveTextContent(plan);
+});
+
+test("toggles selected immutable evidence from its artifact button", async () => {
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("tab", { name: "Specifications" }));
+  const evidenceButton = screen.getByRole("button", { name: `plan ${digest.slice(0, 12)}` });
+  await user.click(evidenceButton);
+  expect(await screen.findByLabelText("Verified evidence")).toBeVisible();
+  expect(evidenceButton).toHaveAttribute("aria-expanded", "true");
+  await user.click(evidenceButton);
+  expect(screen.queryByLabelText("Verified evidence")).not.toBeInTheDocument();
+  expect(evidenceButton).toHaveAttribute("aria-expanded", "false");
 });
 
 test("records immutable review context without presenting it as execution control", async () => {
@@ -144,10 +171,8 @@ test("shows only notes bound to the selected stage and immutable digest", async 
 
   await user.click(await screen.findByText("run-12345678"));
   await user.click(screen.getByRole("tab", { name: "Specifications" }));
-  await user.click(screen.getByRole("button", { name: "Load recorded context" }));
-
-  expect(getFeedback).toHaveBeenCalledWith(run.run_id);
   expect(await screen.findByText(/Shown note\./)).toBeVisible();
+  expect(getFeedback).toHaveBeenCalledWith(run.run_id);
   expect(screen.queryByText(/Hidden stage\./)).not.toBeInTheDocument();
   expect(screen.queryByText(/Hidden digest\./)).not.toBeInTheDocument();
 });
