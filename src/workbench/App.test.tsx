@@ -214,8 +214,9 @@ test("ignores an out-of-order selected-run refresh", async () => {
 
     await user.click(await screen.findByText("run-12345678"));
     await act(async () => { await jest.advanceTimersByTimeAsync(5_000); });
-    expect((await screen.findAllByText("completed", { exact: false })).length).toBeGreaterThan(0);
+    const selectedRunHeader = screen.getByRole("heading", { name: "planning-run-42-revision-1" }).parentElement;
+    expect(selectedRunHeader).toHaveTextContent("completed");
     await act(async () => { resolveFirst?.(run); });
-    expect(screen.getAllByText("completed", { exact: false }).length).toBeGreaterThan(0);
+    expect(selectedRunHeader).toHaveTextContent("completed");
   } finally { jest.useRealTimers(); }
 });
