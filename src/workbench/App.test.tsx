@@ -48,6 +48,28 @@ test("presents Mission Control with filterable authoritative workflow identity",
   expect(screen.getByText("No scoped workflows match this Mission Control view.")).toBeVisible();
 });
 
+test("displays the complete digest bound to a waiting-gate decision", async () => {
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+
+  expect(screen.getByLabelText("Exact plan decision artifact SHA-256")).toHaveTextContent(digest);
+});
+
+test("disables a waiting-gate decision when its authoritative artifact is absent", async () => {
+  const user = userEvent.setup();
+  const incompleteRun: Run = { ...run, artifacts: run.artifacts.filter((artifact) => artifact.kind !== "plan") };
+  render(<App client={client({ listRuns: async () => ({ runs: [incompleteRun], revision: "incomplete", etag: "incomplete", unchanged: false }), getRun: async () => incompleteRun })} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+
+  expect(screen.getByLabelText("Exact plan decision artifact SHA-256")).toHaveTextContent("Unavailable");
+  expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Request revision" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled();
+});
+
 test("keeps a legacy run usable while workflow graph fields are rolling out", async () => {
   const legacyRun: Run = { ...run, workflow_id: undefined, stages: undefined, workflow_graph: undefined };
   const user = userEvent.setup();
