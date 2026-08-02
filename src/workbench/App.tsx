@@ -13,7 +13,7 @@ type WorkflowView = "mission" | "canvas" | "node" | "legacy";
 type WorkflowNode = { id: string; name: string; type: "agent" | "gate" | "queue"; status: string; availability: Stage["availability"]; artifactKind: Artifact["kind"] | null; reason: string; position?: { x: number; y: number; width: number }; metric: string };
 type WorkflowEdge = { fromNodeId: string; toNodeId: string; style: "solid" | "dashed"; emphasis: "primary" | "secondary" };
 type PositionedWorkflowNode = WorkflowNode & { position: { x: number; y: number; width: number } };
-const AUTHORITATIVE_REFRESH_MS = 5_000;
+const AUTHORITATIVE_REFRESH_MS = 3_000;
 
 const tabs: Array<{ id: DetailTab; label: string }> = [
   { id: "summary", label: "Summary" }, { id: "workflow", label: "Workflow map" }, { id: "timeline", label: "Timeline" }, { id: "artifacts", label: "Artifacts" },

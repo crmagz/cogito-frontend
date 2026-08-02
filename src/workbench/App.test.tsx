@@ -216,7 +216,7 @@ test("does not poll the inbox while a selected detail has its own canonical refr
     const getTimeline = jest.fn<ApiClient["getTimeline"]>().mockResolvedValue({ events, revision: "timeline", etag: "timeline", unchanged: false });
     render(<App client={client({ listRuns, getRun, getTimeline })} />);
     await user.click(await screen.findByText("run-12345678"));
-    await act(async () => { await jest.advanceTimersByTimeAsync(5_000); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(3_000); });
     expect(listRuns).toHaveBeenCalledTimes(1);
     expect(getRun).toHaveBeenCalledTimes(2);
     expect(getTimeline).toHaveBeenCalledTimes(2);
@@ -235,7 +235,7 @@ test("ignores an out-of-order selected-run refresh", async () => {
     render(<App client={client({ getRun })} />);
 
     await user.click(await screen.findByText("run-12345678"));
-    await act(async () => { await jest.advanceTimersByTimeAsync(5_000); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(3_000); });
     const selectedRunHeader = screen.getByRole("heading", { name: "planning-run-42-revision-1" }).parentElement;
     expect(selectedRunHeader).toHaveTextContent("completed");
     await act(async () => { resolveFirst?.(run); });
