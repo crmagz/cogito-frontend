@@ -128,7 +128,7 @@ test("renders verified plan phases and acceptance criteria for product review", 
   expect(await screen.findByRole("heading", { name: "Protect customer API traffic" })).toBeVisible();
   expect(screen.getByText("Rate limiter")).toBeVisible();
   expect(screen.getAllByText(/Requests over the limit receive a clear response/)).toHaveLength(2);
-  expect(screen.getByLabelText("Verified evidence")).toHaveTextContent(plan);
+  expect(JSON.parse(screen.getByLabelText("Verified evidence").textContent ?? "")).toEqual(JSON.parse(plan));
 });
 
 test("toggles selected immutable evidence from its artifact button", async () => {
