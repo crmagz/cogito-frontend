@@ -82,7 +82,7 @@ test("operator decision refreshes a browser-rendered authoritative Workflow Canv
       }
       if (request.url === "/api/v1/workbench/runs/run-browser-e2e") return send(response, 200, run(true));
       if (request.url === "/api/v1/workbench/runs/run-browser-e2e/timeline") {
-        return send(response, 200, { items: [{ event_id: "event-browser-e2e", event_type: "plan.awaiting_approval", occurred_at: now, gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }], revision: "timeline" }, { etag: "timeline" });
+        return send(response, 200, { items: [{ event_id: "event-browser-e2e", event_type: "plan.awaiting_approval", occurred_at: now, stage_id: "plan_approval", gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }], revision: "timeline" }, { etag: "timeline" });
       }
       if (request.url?.startsWith(`/api/v1/workbench/runs/run-browser-e2e/evidence/plan?artifact_sha256=${digest}`)) {
         return send(response, 200, { kind: "plan", sha256: digest, content_type: "application/json", content: "{}" });
@@ -140,14 +140,14 @@ test("operator decision refreshes a browser-rendered authoritative Workflow Canv
     await expect(page.getByRole("button", { name: "Focus Implementation", exact: true })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Focus Plan approval" }).click();
     await expect(page.getByLabel("Selected stage details").getByText("Decision required.")).toBeVisible();
-    for (const name of ["Audit activity", "Specifications", "Configuration", "Dependencies", "History"]) {
-      await page.getByRole("tab", { name }).click();
-    }
+    await page.getByRole("tab", { name: "Audit activity" }).click();
+    await expect(page.getByText("plan.awaiting approval")).toBeVisible();
+    for (const name of ["Specifications", "Configuration", "Dependencies", "History"]) await page.getByRole("tab", { name }).click();
     await page.getByRole("tab", { name: "Specifications" }).click();
-    await page.getByLabel("Product-owner note").fill("Clarify rollout risk.");
-    await page.getByRole("button", { name: "Record note" }).click();
-    await expect(page.getByText(/It does not change execution/)).toBeVisible();
-    await page.getByRole("button", { name: "Load recorded notes" }).click();
+    await page.getByLabel("Context for reviewers").fill("Clarify rollout risk.");
+    await page.getByRole("button", { name: "Record context" }).click();
+    await expect(page.getByText(/use Request revision when the work itself needs to change/)).toBeVisible();
+    await page.getByRole("button", { name: "Load recorded context" }).click();
     await expect(page.getByText(/Clarify rollout risk\./)).toBeVisible();
     await page.getByRole("tab", { name: "Overview" }).click();
     await page.getByRole("button", { name: "Approve" }).click();

@@ -83,10 +83,10 @@ test("records a non-executable note against a real source specification", async 
     await expect(page.getByRole("button", { name: "Focus Specification" })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("tab", { name: "Specifications" }).click();
     await expect(page.getByRole("heading", { name: "Verified immutable evidence" })).toBeVisible();
-    await page.getByLabel("Product-owner note").fill("Kind browser validation note.");
-    await page.getByRole("button", { name: "Record note" }).click();
-    await expect(page.getByText(/It does not change execution/)).toBeVisible();
-    await page.getByRole("button", { name: "Load recorded notes" }).click();
+    await page.getByLabel("Context for reviewers").fill("Kind browser validation note.");
+    await page.getByRole("button", { name: "Record context" }).click();
+    await expect(page.getByText(/use Request revision when the work itself needs to change/)).toBeVisible();
+    await page.getByRole("button", { name: "Load recorded context" }).click();
     await expect(page.getByText(/Kind browser validation note\./)).toBeVisible();
   } finally {
     await close(server);

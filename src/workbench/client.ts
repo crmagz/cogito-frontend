@@ -8,6 +8,7 @@ export type TimelineEvent = {
   event_id: string;
   event_type: string;
   occurred_at: string;
+  stage_id: string | null;
   gate: "plan" | "implementation" | null;
   artifact_sha256: string | null;
   decision: "approve" | "reject" | "request_revision" | null;

@@ -48,12 +48,13 @@ export function DecisionControls({ client, run, onComplete, onSuccess }: { clien
         <code aria-label={`Exact ${run.active_gate} decision artifact SHA-256`}>{artifact?.sha256 ?? "Unavailable"}</code>
       </p>
       {!artifact && <p className="evidence-error" role="alert">The authoritative decision artifact is unavailable; no action can be submitted.</p>}
-      <label htmlFor="decision-comment">Rationale for rejection or revision</label>
-      <textarea id="decision-comment" value={comment} onChange={(event) => setComment(event.target.value)} />
-      <div className="decision-actions">
-        <button disabled={pending || !artifact} onClick={() => void decide("approve")}>Approve</button>
-        <button disabled={pending || !artifact} onClick={() => void decide("request_revision")}>Request revision</button>
-        <button disabled={pending || !artifact} onClick={() => void decide("reject")}>Reject</button>
+      <label className="form-field" htmlFor="decision-comment"><span>Rationale for rejection or revision</span>
+        <textarea className="form-textarea" id="decision-comment" value={comment} onChange={(event) => setComment(event.target.value)} />
+      </label>
+      <div className="form-actions decision-actions">
+        <button className="button-primary" disabled={pending || !artifact} onClick={() => void decide("approve")}>Approve</button>
+        <button className="button-secondary" disabled={pending || !artifact} onClick={() => void decide("request_revision")}>Request revision</button>
+        <button className="button-secondary" disabled={pending || !artifact} onClick={() => void decide("reject")}>Reject</button>
       </div>
       <p aria-live="polite">{message}</p>
     </section>

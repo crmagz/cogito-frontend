@@ -12,7 +12,7 @@ const run: Run = {
   artifacts: [{ kind: "source", sha256: digest }, { kind: "plan", sha256: digest }], stages, workflow_graph: { nodes: stages.map((stage) => ({ ...stage, node_type: stage.stage_id.includes("approval") ? "gate" : stage.stage_id === "specification" ? "queue" : "agent" })), edges: [{ source_node_id: "specification", target_node_id: "planning", style: "solid", emphasis: "primary" }, { source_node_id: "planning", target_node_id: "plan_approval", style: "solid", emphasis: "primary" }, { source_node_id: "plan_approval", target_node_id: "implementation", style: "solid", emphasis: "primary" }, { source_node_id: "implementation", target_node_id: "implementation_approval", style: "solid", emphasis: "primary" }] }, abilities: ["view", "approve"], workflow: ["planning", "plan", "plan_approval"],
   budget: { max_cost_usd: 3, max_wall_clock_minutes: 45, max_review_rounds: 2, actual_cost_usd: null, turns_used: null }, approval_history_available: true, approval_history: [], execution: null, external_links: []
 };
-const events: TimelineEvent[] = [{ event_id: "event-1", event_type: "plan.awaiting_approval", occurred_at: "2026-07-26T00:00:00Z", gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }];
+const events: TimelineEvent[] = [{ event_id: "event-1", event_type: "plan.awaiting_approval", occurred_at: "2026-07-26T00:00:00Z", stage_id: "plan_approval", gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }];
 
 function client(overrides: Partial<ApiClient> = {}): ApiClient {
   return { listProjects: async () => [{ project_id: "default" }], getHealth: async () => true, listRuns: async () => ({ runs: [run], revision: "runs", etag: "runs", unchanged: false }), getRun: async () => run, getTimeline: async () => ({ events, revision: "timeline", etag: "timeline", unchanged: false }), getEvidence: async () => ({ content: '{"title":"verified"}', sha256: digest }), getFeedback: async () => [], recordFeedback: async () => ({ feedback_id: "feedback-1", run_id: run.run_id, intent: "note", artifact_sha256: digest, stage_id: "planning", actor_id: "operator", comment: "Recorded note", created_at: "2026-08-02T00:00:00Z" }), decide: async () => undefined, ...overrides };
@@ -119,18 +119,18 @@ test("renders verified plan phases and acceptance criteria for product review", 
   expect(screen.getByLabelText("Verified evidence")).toHaveTextContent(plan);
 });
 
-test("records a product-owner note without presenting it as execution control", async () => {
+test("records immutable review context without presenting it as execution control", async () => {
   const user = userEvent.setup();
   const recordFeedback = jest.fn<ApiClient["recordFeedback"]>().mockResolvedValue({ feedback_id: "feedback-1", run_id: run.run_id, intent: "note", artifact_sha256: digest, stage_id: "plan_approval", actor_id: "operator", comment: "Clarify rollback.", created_at: "2026-08-02T00:00:00Z" });
   render(<App client={client({ recordFeedback })} />);
 
   await user.click(await screen.findByText("run-12345678"));
   await user.click(screen.getByRole("tab", { name: "Specifications" }));
-  await user.type(screen.getByLabelText("Product-owner note"), "Clarify rollback.");
-  await user.click(screen.getByRole("button", { name: "Record note" }));
+  await user.type(screen.getByLabelText("Context for reviewers"), "Clarify rollback.");
+  await user.click(screen.getByRole("button", { name: "Record context" }));
 
   expect(recordFeedback).toHaveBeenCalledWith(run, { kind: "plan", sha256: digest }, "plan_approval", "Clarify rollback.");
-  expect(await screen.findByText(/It does not change execution/)).toBeVisible();
+  expect(await screen.findByText(/use Request revision when the work itself needs to change/)).toBeVisible();
 });
 
 test("shows only notes bound to the selected stage and immutable digest", async () => {
@@ -144,7 +144,7 @@ test("shows only notes bound to the selected stage and immutable digest", async 
 
   await user.click(await screen.findByText("run-12345678"));
   await user.click(screen.getByRole("tab", { name: "Specifications" }));
-  await user.click(screen.getByRole("button", { name: "Load recorded notes" }));
+  await user.click(screen.getByRole("button", { name: "Load recorded context" }));
 
   expect(getFeedback).toHaveBeenCalledWith(run.run_id);
   expect(await screen.findByText(/Shown note\./)).toBeVisible();
