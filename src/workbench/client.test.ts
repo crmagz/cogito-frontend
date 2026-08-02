@@ -54,6 +54,19 @@ test("reuses the idempotency key after an ambiguous transport failure", async ()
   expect(fetchMock.mock.calls[0]![1].headers).toEqual(fetchMock.mock.calls[1]![1].headers);
 });
 
+test("reuses the feedback idempotency key after an ambiguous transport failure", async () => {
+  const fetchMock = jest
+    .fn<(url: string, options: RequestInit) => Promise<Response>>()
+    .mockRejectedValueOnce(new Error("network interrupted"))
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ feedback_id: "feedback-1" }) } as Response);
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  await expect(apiClient.recordFeedback(run, run.artifacts[0]!, "plan_approval", "Clarify rollback.")).rejects.toThrow("network interrupted");
+  await apiClient.recordFeedback(run, run.artifacts[0]!, "plan_approval", "Clarify rollback.");
+
+  expect(fetchMock.mock.calls[0]![1].headers).toEqual(fetchMock.mock.calls[1]![1].headers);
+});
+
 test("sends ETags and cancellation signals on authoritative refreshes", async () => {
   const fetchMock = jest.fn<(url: string, options: RequestInit) => Promise<Response>>(async () => (
     {

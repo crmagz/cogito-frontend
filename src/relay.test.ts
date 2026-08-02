@@ -27,6 +27,7 @@ test("forwards only allowlisted Workbench requests with the server-side credenti
 
   const allowed = await fetch(`${origin}/api/cogito/api/v1/workbench/runs`);
   const timeline = await fetch(`${origin}/api/cogito/api/v1/workbench/runs/run-123/timeline`);
+  const feedback = await fetch(`${origin}/api/cogito/api/v1/workbench/runs/run-123/feedback`);
   const denied = await fetch(`${origin}/api/cogito/api/v1/runs`);
   const crossOrigin = await fetch(`${origin}/api/cogito//attacker.example/api/v1/workbench/runs`);
   await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
@@ -35,13 +36,18 @@ test("forwards only allowlisted Workbench requests with the server-side credenti
   expect(denied.status).toBe(404);
   expect(crossOrigin.status).toBe(404);
   expect(timeline.status).toBe(200);
-  expect(upstream).toHaveBeenCalledTimes(2);
+  expect(feedback.status).toBe(200);
+  expect(upstream).toHaveBeenCalledTimes(3);
   expect(upstream).toHaveBeenCalledWith(
     new URL("https://api.example.test/api/v1/workbench/runs"),
     expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer server-only-token" }) })
   );
   expect(upstream).toHaveBeenCalledWith(
     new URL("https://api.example.test/api/v1/workbench/runs/run-123/timeline"),
+    expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer server-only-token" }) })
+  );
+  expect(upstream).toHaveBeenCalledWith(
+    new URL("https://api.example.test/api/v1/workbench/runs/run-123/feedback"),
     expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer server-only-token" }) })
   );
 });
@@ -132,14 +138,17 @@ test("production server serves health locally and forwards only allowlisted sess
 
   const health = await fetch(`${origin}/healthz`);
   const timeline = await fetch(`${origin}/api/cogito/api/v1/workbench/runs/run-123/timeline`, { headers: { cookie: "session=verified" } });
+  const feedback = await fetch(`${origin}/api/cogito/api/v1/workbench/runs/run-123/feedback`, { headers: { cookie: "session=verified" } });
   const denied = await fetch(`${origin}/api/cogito/api/v1/workbench/runs/run-123/internal`);
   await new Promise<void>((resolve, reject) => server.close((error?: Error) => error ? reject(error) : resolve()));
 
   expect(health.status).toBe(200);
   expect(timeline.status).toBe(200);
   expect(timeline.headers.get("etag")).toBe("timeline-revision");
+  expect(feedback.status).toBe(200);
   expect(denied.status).toBe(404);
   expect(upstream).toHaveBeenCalledWith(new URL("https://session.example.test/api/v1/workbench/runs/run-123/timeline"), expect.anything());
+  expect(upstream).toHaveBeenCalledWith(new URL("https://session.example.test/api/v1/workbench/runs/run-123/feedback"), expect.anything());
 });
 
 test("preserves each session cookie and uses the session relay readiness endpoint", async () => {

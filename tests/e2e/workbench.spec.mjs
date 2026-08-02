@@ -33,6 +33,7 @@ function send(response, code, body, headers = {}) {
 test("operator decision refreshes a browser-rendered authoritative Workflow Canvas and Dossier", async ({ page }) => {
   let approved = false;
   const actions = [];
+  const feedback = [];
   const run = (detail = false) => {
     const stages = [
       { stage_id: "specification", label: "Specification", state: "completed", availability: "authoritative", reason: "Specification stored.", artifact_kind: "source" },
@@ -86,6 +87,17 @@ test("operator decision refreshes a browser-rendered authoritative Workflow Canv
       if (request.url?.startsWith(`/api/v1/workbench/runs/run-browser-e2e/evidence/plan?artifact_sha256=${digest}`)) {
         return send(response, 200, { kind: "plan", sha256: digest, content_type: "application/json", content: "{}" });
       }
+      if (request.url === "/api/v1/workbench/runs/run-browser-e2e/feedback" && request.method === "GET") {
+        return send(response, 200, { items: feedback });
+      }
+      if (request.url === "/api/v1/workbench/runs/run-browser-e2e/feedback" && request.method === "POST") {
+        let body = "";
+        for await (const chunk of request) body += chunk;
+        const payload = JSON.parse(body);
+        const recorded = { feedback_id: "feedback-browser-e2e", run_id: "run-browser-e2e", ...payload, actor_id: "operator-browser", created_at: now };
+        feedback.unshift(recorded);
+        return send(response, 202, recorded);
+      }
       if (request.url === "/api/v1/coordination/runs/run-browser-e2e/actions/plan" && request.method === "POST") {
         let body = "";
         for await (const chunk of request) body += chunk;
@@ -128,9 +140,15 @@ test("operator decision refreshes a browser-rendered authoritative Workflow Canv
     await expect(page.getByRole("button", { name: "Focus Implementation", exact: true })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Focus Plan approval" }).click();
     await expect(page.getByLabel("Selected stage details").getByText("Decision required.")).toBeVisible();
-    for (const name of ["Execution log", "Configuration", "Dependencies", "History"]) {
+    for (const name of ["Audit activity", "Specifications", "Configuration", "Dependencies", "History"]) {
       await page.getByRole("tab", { name }).click();
     }
+    await page.getByRole("tab", { name: "Specifications" }).click();
+    await page.getByLabel("Product-owner note").fill("Clarify rollout risk.");
+    await page.getByRole("button", { name: "Record note" }).click();
+    await expect(page.getByText(/It does not change execution/)).toBeVisible();
+    await page.getByRole("button", { name: "Load recorded notes" }).click();
+    await expect(page.getByText(/Clarify rollout risk\./)).toBeVisible();
     await page.getByRole("tab", { name: "Overview" }).click();
     await page.getByRole("button", { name: "Approve" }).click();
     await expect.poll(() => actions.length).toBe(1);

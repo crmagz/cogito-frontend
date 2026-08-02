@@ -15,6 +15,7 @@ export type TimelineEvent = {
   delivered: boolean;
   delivery_attempt_count: number;
 };
+export type Feedback = { feedback_id: string; run_id: string; intent: "note"; artifact_sha256: string; stage_id: string; actor_id: string; comment: string; created_at: string };
 export type Stage = {
   stage_id: string;
   label: string;
@@ -52,11 +53,14 @@ export type ApiClient = {
   getRun: (runId: string, signal?: AbortSignal) => Promise<Run>;
   getTimeline: (runId: string, options?: { etag?: string; signal?: AbortSignal }) => Promise<{ events: TimelineEvent[]; revision: string; etag: string | null; unchanged: boolean }>;
   getEvidence: (runId: string, artifact: Artifact) => Promise<{ content: string; sha256: string }>;
+  getFeedback: (runId: string) => Promise<Feedback[]>;
+  recordFeedback: (run: Run, artifact: Artifact, stageId: string, comment: string) => Promise<Feedback>;
   decide: (run: Run, decision: "approve" | "reject" | "request_revision", comment?: string) => Promise<void>;
 };
 
 const base = "/api/cogito/api/v1";
 const inFlightDecisionKeys = new Map<string, string>();
+const inFlightFeedbackKeys = new Map<string, string>();
 
 async function json(response: Response) {
   if (!response.ok) throw new Error(`Authoritative API request failed (${response.status})`);
@@ -93,6 +97,27 @@ export const apiClient: ApiClient = {
       `${base}/workbench/runs/${encodeURIComponent(runId)}/evidence/${artifact.kind}?artifact_sha256=${encodeURIComponent(artifact.sha256)}`
     );
     return json(response);
+  },
+  async getFeedback(runId) {
+    return (await json(await fetch(`${base}/workbench/runs/${encodeURIComponent(runId)}/feedback`))).items;
+  },
+  async recordFeedback(run, artifact, stageId, comment) {
+    const fingerprint = `${run.run_id}:${artifact.sha256}:${stageId}:${comment}`;
+    const idempotencyKey = inFlightFeedbackKeys.get(fingerprint) ?? crypto.randomUUID();
+    inFlightFeedbackKeys.set(fingerprint, idempotencyKey);
+    const response = await fetch(`${base}/workbench/runs/${encodeURIComponent(run.run_id)}/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({ intent: "note", artifact_sha256: artifact.sha256, stage_id: stageId, comment })
+    });
+    if (!response.ok) {
+      inFlightFeedbackKeys.delete(fingerprint);
+      throw new Error(`Authoritative API request failed (${response.status})`);
+    }
+    const feedback = await json(response);
+    // A transport/body failure before this point is ambiguous, so the key remains available for safe replay.
+    inFlightFeedbackKeys.delete(fingerprint);
+    return feedback;
   },
   async decide(run, decision, comment) {
     if (!run.active_gate) throw new Error("This run is not awaiting an operator decision");

@@ -30,7 +30,10 @@ function listen(server) {
 }
 
 function close(server) {
-  return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+    server.closeAllConnections?.();
+  });
 }
 
 async function startWorkbenchRelay() {
@@ -63,6 +66,28 @@ test("renders a real Kind-backed scoped Workbench run", async ({ page }) => {
     await expect(page.locator(".embedded-dossier").getByRole("heading", { name: "Specification", exact: true })).toBeVisible();
     await page.getByRole("tab", { name: "Configuration" }).click();
     await expect(page.getByLabel("Authoritative node display context")).toContainText("specification");
+  } finally {
+    await close(server);
+  }
+});
+
+test("records a non-executable note against a real source specification", async ({ page }) => {
+  test.skip(!readOnlyRunId, "set COGITO_E2E_RUN_ID to exercise the product-owner feedback path");
+  if (!upstreamUrl || !token) {
+    throw new Error("COGITO_E2E_UPSTREAM_URL and COGITO_E2E_UPSTREAM_TOKEN are required");
+  }
+  const { server, origin } = await startWorkbenchRelay();
+  try {
+    await page.goto(`${origin}/workflows/${encodeURIComponent(readOnlyRunId)}`);
+    await page.getByRole("button", { name: "Focus Specification" }).click();
+    await expect(page.getByRole("button", { name: "Focus Specification" })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("tab", { name: "Specifications" }).click();
+    await expect(page.getByRole("heading", { name: "Verified immutable evidence" })).toBeVisible();
+    await page.getByLabel("Product-owner note").fill("Kind browser validation note.");
+    await page.getByRole("button", { name: "Record note" }).click();
+    await expect(page.getByText(/It does not change execution/)).toBeVisible();
+    await page.getByRole("button", { name: "Load recorded notes" }).click();
+    await expect(page.getByText(/Kind browser validation note\./)).toBeVisible();
   } finally {
     await close(server);
   }

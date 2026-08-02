@@ -8,6 +8,8 @@ const allowed = [
   { method: "GET", path: /^\/healthz$/ },
   { method: "GET", path: /^\/api\/v1\/workbench\/projects$/ },
   { method: "GET", path: /^\/api\/v1\/workbench\/runs(?:\/[^/]+(?:\/(?:timeline|evidence\/(?:source|plan|implementation)))?)?$/ },
+  { method: "GET", path: /^\/api\/v1\/workbench\/runs\/[^/]+\/feedback$/ },
+  { method: "POST", path: /^\/api\/v1\/workbench\/runs\/[^/]+\/feedback$/ },
   { method: "POST", path: /^\/api\/v1\/coordination\/runs\/[^/]+\/actions\/(?:plan|implementation)$/ }
 ];
 
