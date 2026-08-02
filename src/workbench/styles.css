@@ -23,11 +23,15 @@
 .decision-panel .form-textarea { min-height:96px; margin:0; padding:11px 12px; }
 .decision-actions .button-primary { border-color:var(--border-accent); color:var(--accent); background:rgba(0,212,255,.09); }
 .decision-actions .button-secondary { border-color:var(--border); color:var(--fg-subtle); background:var(--surface); }
-.evidence-card > .review-context { margin:24px 18px 18px; padding:0; overflow:hidden; }
-.review-context > .control-note,.review-context > .form-field,.review-context > .form-help,.review-context > .form-actions,.review-context > .sync-row,.review-context > .timeline { margin-right:18px; margin-left:18px; }
-.review-context > .control-note { margin-top:16px; margin-bottom:0; }
-.review-context > .form-help { margin-top:8px; }
-.review-context > .timeline { margin-top:16px; }
+.dossier-section-stack { display:grid; gap:18px; }
+.dossier-section { padding:0; overflow:hidden; }
+.dossier-section-body { padding:16px 18px 18px; }
+.dossier-section .artifact-list { padding:0; }
+.dossier-section-body > pre,.dossier-section-body > .evidence-error { margin-right:0; margin-left:0; }
+.plan-summary h4 { margin:0 0 10px; color:var(--fg); font-size:15px; font-weight:600; }
+.plan-summary .dossier-description { margin-bottom:16px; }
+.review-context .control-note { margin-top:0; }
+.review-context .timeline { margin-top:16px; }
 /* Align the operator chrome with the compact Relay Grid reference scale. */
 .decision-artifact { display:grid; gap:6px; margin:0 0 16px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-deep); }
 .decision-artifact span { color:var(--fg-muted); font:9.5px "JetBrains Mono",ui-monospace,monospace; letter-spacing:.1em; text-transform:uppercase; }
