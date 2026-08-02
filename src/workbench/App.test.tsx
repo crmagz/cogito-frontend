@@ -194,9 +194,28 @@ test("does not poll the inbox while a selected detail has its own canonical refr
     const getTimeline = jest.fn<ApiClient["getTimeline"]>().mockResolvedValue({ events, revision: "timeline", etag: "timeline", unchanged: false });
     render(<App client={client({ listRuns, getRun, getTimeline })} />);
     await user.click(await screen.findByText("run-12345678"));
-    await act(async () => { await jest.advanceTimersByTimeAsync(15_000); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(5_000); });
     expect(listRuns).toHaveBeenCalledTimes(1);
     expect(getRun).toHaveBeenCalledTimes(2);
     expect(getTimeline).toHaveBeenCalledTimes(2);
+  } finally { jest.useRealTimers(); }
+});
+
+test("ignores an out-of-order selected-run refresh", async () => {
+  jest.useFakeTimers();
+  try {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    let resolveFirst: ((value: Run) => void) | undefined;
+    const completedRun: Run = { ...run, status: "completed", active_gate: null };
+    const getRun = jest.fn<ApiClient["getRun"]>()
+      .mockImplementationOnce(() => new Promise<Run>((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValue(completedRun);
+    render(<App client={client({ getRun })} />);
+
+    await user.click(await screen.findByText("run-12345678"));
+    await act(async () => { await jest.advanceTimersByTimeAsync(5_000); });
+    expect((await screen.findAllByText("completed", { exact: false })).length).toBeGreaterThan(0);
+    await act(async () => { resolveFirst?.(run); });
+    expect(screen.getAllByText("completed", { exact: false }).length).toBeGreaterThan(0);
   } finally { jest.useRealTimers(); }
 });
