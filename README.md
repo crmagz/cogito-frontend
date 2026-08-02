@@ -2,8 +2,11 @@
 
 An evidence-first, project-scoped operator console for Cogito. It presents a
 filterable Runs inbox, deep-linkable run detail, an authoritative lifecycle
-timeline, and digest-bound evidence and approval views. It is deliberately not
-a chat client and it does not directly access object storage or Temporal.
+timeline, digest-bound evidence and approval views, and append-only
+product-owner notes. Notes are non-executable context: they are scoped to one
+server-owned stage and immutable artifact digest, and do not change a workflow
+or instruct an agent. It is deliberately not a chat client and it does not
+directly access object storage or Temporal.
 
 ## Local development
 
@@ -99,7 +102,7 @@ ephemeral Kind cluster. Forge owns image publication and release creation.
 
 The hermetic browser suite starts the built Workbench with a constrained local
 relay and a deterministic upstream fixture. It covers scoped inventory,
-deep-link reload, timeline rendering, verified evidence, approval feedback,
+deep-link reload, timeline rendering, verified evidence, digest-bound product-owner notes, approval feedback,
 and the persisted post-decision state:
 
 ```sh

@@ -15,7 +15,7 @@ const run: Run = {
 const events: TimelineEvent[] = [{ event_id: "event-1", event_type: "plan.awaiting_approval", occurred_at: "2026-07-26T00:00:00Z", gate: "plan", artifact_sha256: digest, decision: null, lifecycle_status: null, delivered: true, delivery_attempt_count: 1 }];
 
 function client(overrides: Partial<ApiClient> = {}): ApiClient {
-  return { listProjects: async () => [{ project_id: "default" }], getHealth: async () => true, listRuns: async () => ({ runs: [run], revision: "runs", etag: "runs", unchanged: false }), getRun: async () => run, getTimeline: async () => ({ events, revision: "timeline", etag: "timeline", unchanged: false }), getEvidence: async () => ({ content: '{"title":"verified"}', sha256: digest }), decide: async () => undefined, ...overrides };
+  return { listProjects: async () => [{ project_id: "default" }], getHealth: async () => true, listRuns: async () => ({ runs: [run], revision: "runs", etag: "runs", unchanged: false }), getRun: async () => run, getTimeline: async () => ({ events, revision: "timeline", etag: "timeline", unchanged: false }), getEvidence: async () => ({ content: '{"title":"verified"}', sha256: digest }), getFeedback: async () => [], recordFeedback: async () => ({ feedback_id: "feedback-1", run_id: run.run_id, intent: "note", artifact_sha256: digest, stage_id: "planning", actor_id: "operator", comment: "Recorded note", created_at: "2026-08-02T00:00:00Z" }), decide: async () => undefined, ...overrides };
 }
 
 beforeEach(() => { window.history.replaceState({}, "", "/"); window.localStorage.clear(); });
@@ -77,6 +77,79 @@ test("keeps a legacy run usable while workflow graph fields are rolling out", as
 
   await user.click(await screen.findByText("run-12345678"));
   expect(await screen.findByText("No authoritative lifecycle graph is available for this run yet.")).toBeVisible();
+});
+
+test("distinguishes authoritative audit activity from verified specifications", async () => {
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("tab", { name: "Audit activity" }));
+
+  expect(await screen.findByRole("heading", { name: "Authoritative audit activity" })).toBeVisible();
+  expect(screen.getByText("This view contains durable lifecycle and approval events, not raw agent output.")).toBeVisible();
+  expect(screen.queryByText("Execution log")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("tab", { name: "Specifications" }));
+  expect(await screen.findByRole("heading", { name: "Verified immutable evidence" })).toBeVisible();
+  expect(screen.getAllByText(digest.slice(0, 12))).toHaveLength(2);
+});
+
+test("renders verified plan phases and acceptance criteria for product review", async () => {
+  const user = userEvent.setup();
+  const plan = JSON.stringify({
+    title: "Protect customer API traffic",
+    summary: "Add bounded rate limiting before releasing the gateway change.",
+    phases: [{
+      id: "phase-1",
+      name: "Rate limiter",
+      description: "Add the limit policy.",
+      acceptance_criteria: ["Requests over the limit receive a clear response."]
+    }]
+  });
+  render(<App client={client({ getEvidence: async () => ({ content: plan, sha256: digest }) })} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("tab", { name: "Specifications" }));
+  await user.click(screen.getByRole("button", { name: `plan ${digest.slice(0, 12)}` }));
+
+  expect(await screen.findByRole("heading", { name: "Protect customer API traffic" })).toBeVisible();
+  expect(screen.getByText("Rate limiter")).toBeVisible();
+  expect(screen.getAllByText(/Requests over the limit receive a clear response/)).toHaveLength(2);
+  expect(screen.getByLabelText("Verified evidence")).toHaveTextContent(plan);
+});
+
+test("records a product-owner note without presenting it as execution control", async () => {
+  const user = userEvent.setup();
+  const recordFeedback = jest.fn<ApiClient["recordFeedback"]>().mockResolvedValue({ feedback_id: "feedback-1", run_id: run.run_id, intent: "note", artifact_sha256: digest, stage_id: "plan_approval", actor_id: "operator", comment: "Clarify rollback.", created_at: "2026-08-02T00:00:00Z" });
+  render(<App client={client({ recordFeedback })} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("tab", { name: "Specifications" }));
+  await user.type(screen.getByLabelText("Product-owner note"), "Clarify rollback.");
+  await user.click(screen.getByRole("button", { name: "Record note" }));
+
+  expect(recordFeedback).toHaveBeenCalledWith(run, { kind: "plan", sha256: digest }, "plan_approval", "Clarify rollback.");
+  expect(await screen.findByText(/It does not change execution/)).toBeVisible();
+});
+
+test("shows only notes bound to the selected stage and immutable digest", async () => {
+  const user = userEvent.setup();
+  const getFeedback = jest.fn<ApiClient["getFeedback"]>().mockResolvedValue([
+    { feedback_id: "feedback-matching", run_id: run.run_id, intent: "note", artifact_sha256: digest, stage_id: "plan_approval", actor_id: "owner", comment: "Shown note.", created_at: "2026-08-02T00:00:00Z" },
+    { feedback_id: "feedback-other-stage", run_id: run.run_id, intent: "note", artifact_sha256: digest, stage_id: "planning", actor_id: "owner", comment: "Hidden stage.", created_at: "2026-08-02T00:00:00Z" },
+    { feedback_id: "feedback-other-digest", run_id: run.run_id, intent: "note", artifact_sha256: "b".repeat(64), stage_id: "plan_approval", actor_id: "owner", comment: "Hidden digest.", created_at: "2026-08-02T00:00:00Z" }
+  ]);
+  render(<App client={client({ getFeedback })} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("tab", { name: "Specifications" }));
+  await user.click(screen.getByRole("button", { name: "Load recorded notes" }));
+
+  expect(getFeedback).toHaveBeenCalledWith(run.run_id);
+  expect(await screen.findByText(/Shown note\./)).toBeVisible();
+  expect(screen.queryByText(/Hidden stage\./)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Hidden digest\./)).not.toBeInTheDocument();
 });
 
 test("renders an authoritative in-progress stage as active", async () => {
