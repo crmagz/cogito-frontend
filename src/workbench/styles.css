@@ -32,6 +32,11 @@
 .plan-summary .dossier-description { margin-bottom:16px; }
 .review-context .control-note { margin-top:0; }
 .review-context .timeline { margin-top:16px; }
+.evidence-json { color:var(--fg); }
+.evidence-json .json-key { color:#7dd3fc; }
+.evidence-json .json-string { color:#a7f3d0; }
+.evidence-json .json-number { color:#fcd34d; }
+.evidence-json .json-literal { color:#f9a8d4; }
 /* Align the operator chrome with the compact Relay Grid reference scale. */
 .decision-artifact { display:grid; gap:6px; margin:0 0 16px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-deep); }
 .decision-artifact span { color:var(--fg-muted); font:9.5px "JetBrains Mono",ui-monospace,monospace; letter-spacing:.1em; text-transform:uppercase; }
