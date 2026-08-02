@@ -7,6 +7,7 @@ export function DecisionControls({ client, run, onComplete, onSuccess }: { clien
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const mounted = useRef(false);
+  const artifact = run.active_gate ? run.artifacts.find((item) => item.kind === run.active_gate) : null;
 
   useEffect(() => {
     mounted.current = true;
@@ -42,12 +43,17 @@ export function DecisionControls({ client, run, onComplete, onSuccess }: { clien
   return (
     <section aria-label="Approval decision" className="decision-panel">
       <h3>{run.active_gate} approval gate</h3>
+      <p className="decision-artifact">
+        <span>Exact decision artifact SHA-256</span>
+        <code aria-label={`Exact ${run.active_gate} decision artifact SHA-256`}>{artifact?.sha256 ?? "Unavailable"}</code>
+      </p>
+      {!artifact && <p className="evidence-error" role="alert">The authoritative decision artifact is unavailable; no action can be submitted.</p>}
       <label htmlFor="decision-comment">Rationale for rejection or revision</label>
       <textarea id="decision-comment" value={comment} onChange={(event) => setComment(event.target.value)} />
       <div className="decision-actions">
-        <button disabled={pending} onClick={() => void decide("approve")}>Approve</button>
-        <button disabled={pending} onClick={() => void decide("request_revision")}>Request revision</button>
-        <button disabled={pending} onClick={() => void decide("reject")}>Reject</button>
+        <button disabled={pending || !artifact} onClick={() => void decide("approve")}>Approve</button>
+        <button disabled={pending || !artifact} onClick={() => void decide("request_revision")}>Request revision</button>
+        <button disabled={pending || !artifact} onClick={() => void decide("reject")}>Reject</button>
       </div>
       <p aria-live="polite">{message}</p>
     </section>
