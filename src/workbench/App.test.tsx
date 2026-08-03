@@ -107,6 +107,19 @@ test("shows a server-attributed transition in the Planning dossier audit and ove
   expect(screen.getByText("plan.awaiting approval")).toBeVisible();
 });
 
+test("formats authoritative configuration as syntax-highlighted JSON", async () => {
+  const user = userEvent.setup();
+  render(<App client={client()} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("tab", { name: "Configuration" }));
+  const configuration = screen.getByLabelText("Authoritative node display context");
+
+  expect(JSON.parse(configuration.textContent ?? "")).toMatchObject({ node_id: "plan_approval", type: "gate" });
+  expect(configuration).toHaveClass("evidence-json");
+  expect(configuration.querySelector(".json-key")).not.toBeNull();
+});
+
 test("renders verified plan phases and acceptance criteria for product review", async () => {
   const user = userEvent.setup();
   const plan = JSON.stringify({
