@@ -173,6 +173,23 @@ test("records immutable review context without presenting it as execution contro
   expect(await screen.findByText(/use Request revision when the work itself needs to change/)).toBeVisible();
 });
 
+test("clears a recorded-context notice when the selected evidence digest changes", async () => {
+  const user = userEvent.setup();
+  const sourceDigest = "b".repeat(64);
+  const distinctEvidenceRun: Run = { ...run, artifacts: [{ kind: "source", sha256: sourceDigest }, { kind: "plan", sha256: digest }] };
+  const recordFeedback = jest.fn<ApiClient["recordFeedback"]>().mockResolvedValue({ feedback_id: "feedback-1", run_id: run.run_id, intent: "note", artifact_sha256: digest, stage_id: "plan_approval", actor_id: "operator", comment: "Clarify rollback.", created_at: "2026-08-02T00:00:00Z" });
+  render(<App client={client({ listRuns: async () => ({ runs: [distinctEvidenceRun], revision: "distinct-evidence", etag: "distinct-evidence", unchanged: false }), getRun: async () => distinctEvidenceRun, recordFeedback })} />);
+
+  await user.click(await screen.findByText("run-12345678"));
+  await user.click(screen.getByRole("tab", { name: "Specifications" }));
+  await user.type(screen.getByLabelText("Context for reviewers"), "Clarify rollback.");
+  await user.click(screen.getByRole("button", { name: "Record context" }));
+  expect(await screen.findByText(/Review context recorded at/)).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: `Specification ${sourceDigest.slice(0, 12)}` }));
+  expect(screen.queryByText(/Review context recorded at/)).not.toBeInTheDocument();
+});
+
 test("shows only notes bound to the selected stage and immutable digest", async () => {
   const user = userEvent.setup();
   const getFeedback = jest.fn<ApiClient["getFeedback"]>().mockResolvedValue([
