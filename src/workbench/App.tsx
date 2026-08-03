@@ -144,7 +144,7 @@ function EvidenceViewer({ client, run, initial, stageId }: { client: ApiClient; 
   }, [client, run.run_id, selected?.sha256, stageId]);
   const open = async (artifact: Artifact) => {
     if (selected?.sha256 === artifact.sha256 && content) { setEvidenceExpanded((expanded) => !expanded); return; }
-    setSelected(artifact); setContent(""); setEvidenceExpanded(true); setLoading(true); setError(null);
+    setSelected(artifact); setContent(""); setEvidenceExpanded(true); setLoading(true); setError(null); setFeedbackNotice(null);
     try { setContent((await client.getEvidence(run.run_id, artifact)).content); } catch (reason) { setContent(""); setError(reason instanceof Error ? reason.message : "Verified evidence is unavailable."); } finally { setLoading(false); }
   };
   const submitNote = async () => { if (!selected || !stageId || !note.trim()) return; try { setSubmittingFeedback(true); const recorded = await client.recordFeedback(run, selected, stageId, note.trim()); setFeedbackNotice(`Review context recorded at ${new Date(recorded.created_at).toLocaleString()}. It does not change execution.`); setFeedback((items) => [recorded, ...(items ?? [])]); setNote(""); } catch (reason) { setFeedbackNotice(reason instanceof Error ? reason.message : "Review context could not be recorded."); } finally { setSubmittingFeedback(false); } };

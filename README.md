@@ -4,7 +4,7 @@ An evidence-first, project-scoped operator console for Cogito. It presents a
 filterable Runs inbox, deep-linkable run detail, an authoritative lifecycle
 timeline, digest-bound evidence and approval views, and append-only
 immutable review context. Review context is non-executable: it is scoped to one
-server-owned stage and immutable artifact digest, and do not change a workflow
+server-owned stage and immutable artifact digest, and does not change a workflow
 or instruct an agent. It is deliberately not a chat client and it does not
 directly access object storage or Temporal.
 
